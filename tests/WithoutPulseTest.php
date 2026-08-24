@@ -45,6 +45,6 @@ class WithoutPulseTest extends TestCase
         $output = $this->app[Kernel::class]->output();
 
         $this->assertStringContainsString('Pulse counter', $output);
-        $this->assertStringNotContainsString('replaces Pulse recorder', $output);
+        $this->assertStringNotContainsString('counts in front of the gate', $output);
     }
 }

@@ -26,6 +26,19 @@ class ExceptionThrottleTest extends TestCase
     }
 
     #[Test]
+    public function the_budget_refills_when_the_window_ends(): void
+    {
+        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        $this->captureReports();
+
+        $this->reportTimes(RuntimeException::class, 3);
+        $this->travel(301)->seconds();
+        $this->reportTimes(RuntimeException::class, 3);
+
+        $this->assertCount(2, $this->reported);
+    }
+
+    #[Test]
     public function each_exception_class_gets_its_own_budget(): void
     {
         // One loud failure must not mask a different one.
@@ -138,8 +151,7 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function a_missing_budget_fails_open_rather_than_silencing_everything(): void
     {
-        // An empty env var reads as 0. Failing closed here would lose every error in production
-        // with nothing to show for it, so an unusable budget means no budget.
+        // An empty env var reads as 0, and an unusable budget means no budget.
         config(['flood-control.limit' => 0, 'flood-control.window' => 0]);
         $this->captureReports();
 

@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace FloodControl\Tests;
 
 use FloodControl\FloodControlServiceProvider;
+use FloodControl\Tests\Fixtures\CapturingIngest;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Laravel\Pulse\Contracts\Ingest;
+use Laravel\Pulse\Entry;
+use Laravel\Pulse\Facades\Pulse;
 use Laravel\Pulse\PulseServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 use Throwable;
@@ -49,5 +53,24 @@ abstract class TestCase extends Orchestra
 
             return false;
         });
+    }
+
+    /**
+     * Runs $work and flushes Pulse through a capturing ingest: its real path, with no database.
+     *
+     * @return list<string> the key of every `exception` entry that reached Pulse
+     */
+    protected function pulseExceptions(callable $work): array
+    {
+        $this->app->instance(Ingest::class, $ingest = new CapturingIngest);
+
+        $work();
+
+        Pulse::ingest();
+
+        return array_values(array_map(
+            static fn (Entry $entry): string => $entry->key,
+            array_filter($ingest->entries, static fn (Entry $entry): bool => $entry->type === 'exception'),
+        ));
     }
 }

@@ -10,9 +10,7 @@ use WeakMap;
 
 /**
  * The rate limit for reported exceptions. Registered as a throttle callback, so it gates inside
- * `shouldntReport()` — ahead of the log write, ahead of Sentry, and ahead of every `reportable`
- * callback. That last part is why anything counting exceptions has to be registered as a throttle
- * callback too, not as a `reportable`. See the README.
+ * `shouldntReport()` — ahead of the log write and ahead of every `reportable` callback.
  */
 final class ExceptionThrottle
 {
@@ -24,7 +22,7 @@ final class ExceptionThrottle
     {
         $config = app(ThrottleConfig::class);
 
-        // Before the override lookup, so the kill switch really kills.
+        // Ahead of the override lookup: disabling beats a per-call limit.
         if (! $config->enabled()) {
             return Limit::none();
         }
@@ -41,20 +39,20 @@ final class ExceptionThrottle
     }
 
     /**
-     * Keyed by the throwable itself, so the override travels with that instance and dies with it.
-     * Prefer the `classes` config for a rule that always applies to a class.
+     * Keyed by the throwable, so the override dies with the instance. The Limit is kept whole: one
+     * carrying `by()` replaces the per-class bucket.
      */
     public static function override(Throwable $e, Limit $limit): void
     {
-        self::overrides()[$e] = self::limit($limit->maxAttempts, $limit->decaySeconds);
+        self::overrides()[$e] = $limit->maxAttempts > 0 && $limit->decaySeconds > 0
+            ? $limit
+            : Limit::none();
     }
 
     /**
-     * Read and forget: an override is the ceiling for the report it was set on. Leaving it would
-     * also apply to any later report of the same instance, in this request or a later one.
-     *
-     * The `getPrevious()` walk covers `$exceptions->map()`, which replaces the throwable before
-     * `shouldntReport()` runs — the mapped exception carries the original as its previous.
+     * Consumed on read: an override caps the report it was set on, not every later report of the
+     * same instance. The `getPrevious()` walk covers `$exceptions->map()`, which replaces the
+     * throwable before `shouldntReport()` runs — the override may then sit on a previous.
      */
     private static function takeOverride(Throwable $e): ?Limit
     {
@@ -70,14 +68,11 @@ final class ExceptionThrottle
         return null;
     }
 
-    /**
-     * A budget below 1 means no limit, never "report nothing": an empty env var reads as 0, and
-     * failing closed there would lose every error in production with nothing to show for it.
-     */
+    /** A limit or window below 1 means no limit, not "report nothing": an empty env var reads as 0. */
     private static function limit(int $limit, int $window): Limit
     {
         return $limit > 0 && $window > 0
-            // No key: the handler defaults to one bucket per exception class, hashed.
+            // Empty key: the handler falls back to one bucket per exception class, hashed.
             ? new Limit(maxAttempts: $limit, decaySeconds: $window)
             : Limit::none();
     }

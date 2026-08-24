@@ -10,6 +10,7 @@ use FloodControl\Tests\Fixtures\MappedTo;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Context;
+use LogicException;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Throwable;
@@ -85,9 +86,7 @@ class ReportTest extends TestCase
         Report::exception(new RuntimeException('overridden'), limit: new Limit(maxAttempts: 1, decaySeconds: 300));
         report(new RuntimeException('plain'));
 
-        // Both share the class bucket, but each call is judged against its own ceiling: the first
-        // asked for 1 and got it, the second is still well under the configured 10. An override
-        // tightens what THIS report will accept — it does not reserve the bucket against others.
+        // Each call is judged against its own ceiling, so an override does not reserve the bucket.
         $this->assertCount(2, $this->reported);
     }
 
@@ -122,8 +121,7 @@ class ReportTest extends TestCase
     #[Test]
     public function the_kill_switch_beats_a_per_call_override(): void
     {
-        // The switch exists to be flipped mid-incident to see everything; a tightened call site
-        // staying silent through it is the opposite of what it is for.
+        // The switch is flipped mid-incident to see everything.
         config(['flood-control.enabled' => false]);
         $this->captureReports();
 
@@ -137,8 +135,7 @@ class ReportTest extends TestCase
     #[Test]
     public function an_override_is_spent_by_the_report_it_was_set_on(): void
     {
-        // Otherwise it lingers on the instance for the life of the process — and re-reporting a
-        // caught exception after handling it is ordinary.
+        // Otherwise it lingers on the instance, and re-reporting a caught exception is ordinary.
         config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -166,6 +163,20 @@ class ReportTest extends TestCase
 
         $this->assertCount(1, $this->reported);
         $this->assertInstanceOf(MappedTo::class, $this->reported[0]);
+    }
+
+    #[Test]
+    public function a_limit_with_a_key_picks_its_own_bucket(): void
+    {
+        // Limit::by() is the only way to throttle across classes or per tenant, and rebuilding the
+        // Limit from maxAttempts/decaySeconds alone would drop it back to the per-class bucket.
+        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        $this->captureReports();
+
+        Report::exception(new RuntimeException('first'), limit: Limit::perHour(1)->by('tenant:7'));
+        Report::exception(new LogicException('different class, same bucket'), limit: Limit::perHour(1)->by('tenant:7'));
+
+        $this->assertCount(1, $this->reported);
     }
 
     #[Test]

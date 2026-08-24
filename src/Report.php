@@ -8,16 +8,12 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Context;
 use Throwable;
 
-/**
- * `report($e)` with the two things a call site sometimes needs: extra context, and a limit that
- * differs from the configured one. Without either, use `report($e)` directly — this adds nothing.
- */
+/** `report($e)` with extra context, a per-call limit, or both. With neither, use `report($e)`. */
 final class Report
 {
     /**
      * @param  array<string, mixed>  $context  Added for this report only; restored afterwards.
-     * @param  Limit|null  $limit  The ceiling for this report: Limit::perHour(1) and friends, or
-     *                             new Limit(maxAttempts: 1, decaySeconds: 300).
+     * @param  Limit|null  $limit  Ceiling for this report. `by()` picks the bucket.
      */
     public static function exception(Throwable $e, array $context = [], ?Limit $limit = null): void
     {

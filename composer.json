@@ -1,13 +1,14 @@
 {
     "name": "ismailnakkar/laravel-flood-control",
-    "description": "One rate limit for reported exceptions, applied before the log write and before Sentry.",
+    "description": "Rate-limit reported exceptions and repeated log lines in Laravel.",
     "keywords": [
         "laravel",
         "exceptions",
         "throttle",
         "rate-limit",
-        "sentry",
-        "logging"
+        "logging",
+        "pulse",
+        "sentry"
     ],
     "homepage": "https://github.com/ismailnakkar/laravel-flood-control",
     "license": "MIT",
@@ -22,16 +23,16 @@
         "issues": "https://github.com/ismailnakkar/laravel-flood-control/issues"
     },
     "require": {
-        "php": "^8.5",
-        "illuminate/cache": "^13.0",
-        "illuminate/contracts": "^13.0",
-        "illuminate/support": "^13.0"
+        "php": "^8.2",
+        "laravel/framework": "^12.1 || ^13.0",
+        "monolog/monolog": "^3.0",
+        "psr/log": "^1.0 || ^2.0 || ^3.0"
     },
     "require-dev": {
         "laravel/pint": "^1.18",
-        "laravel/pulse": "^1.8",
-        "orchestra/testbench": "^11.0",
-        "phpunit/phpunit": "^12.0"
+        "laravel/pulse": "^1.0",
+        "orchestra/testbench": "^10.0 || ^11.0",
+        "phpunit/phpunit": "^11.5 || ^12.0"
     },
     "suggest": {
         "laravel/pulse": "Keeps an unthrottled exception rate signal alongside the throttled reports."
@@ -44,14 +45,15 @@
     "autoload-dev": {
         "psr-4": {
             "FloodControl\\Tests\\": "tests/"
-        },
-        "files": [
-            "tests/Fixtures/exceptions.php"
-        ]
+        }
     },
     "scripts": {
         "test": "vendor/bin/phpunit",
-        "lint": "vendor/bin/pint"
+        "lint": "vendor/bin/pint",
+        "check": [
+            "vendor/bin/pint --test",
+            "vendor/bin/phpunit"
+        ]
     },
     "extra": {
         "laravel": {

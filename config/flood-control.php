@@ -5,48 +5,59 @@ declare(strict_types=1);
 return [
 
     /*
-     * Off means every reported exception is narrated. The counter you register alongside the
-     * throttle is unaffected either way — see the README.
+     * Master switch. Off, nothing is throttled — per-call Report::exception() limits included.
+     * The Pulse counter below is unaffected.
      */
-    'enabled' => (bool)env('FLOOD_CONTROL_ENABLED', true),
+    'enabled' => env('FLOOD_CONTROL_ENABLED', true),
 
     /*
-     * The unthrottled rate signal.
+     * On (with laravel/pulse installed): counts every reported exception in front of the gate, so
+     * the exceptions card keeps showing the real rate. Pulse counts from a `reportable`, which runs
+     * behind the gate; only that hook is replaced. Recording is still Pulse's own recorder, so its
+     * ignore, sample_rate and location settings apply as written. Off, Pulse counts survivors only.
+     */
+    'pulse' => env('FLOOD_CONTROL_PULSE', true),
+
+    /*
+     * Your own counters: classes that see every reported exception, in front of the gate, so a rate
+     * signal stays true while the reports themselves are throttled. Each is resolved from the
+     * container per exception and invoked with the throwable. Return values are ignored and throws are swallowed,
+     * because a throw here would read as "do not throttle".
      *
-     * The gate runs inside `shouldntReport()`, ahead of every `reportable` callback — and Laravel
-     * Pulse's own Exceptions recorder registers as one. Left to itself its card would count what
-     * survived the throttle, not what happened.
+     *   \App\Reporting\CountExceptions::class,
      *
-     * On (and with laravel/pulse installed) this registers a counter ahead of the gate and turns
-     * Pulse's recorder off, emitting the same `exception` type and `[class, location]` key, so the
-     * stock Pulse card keeps working and stays honest. Off leaves Pulse's recorder alone, and its
-     * numbers then agree with the throttle rather than with reality.
+     * A counter that reports is not counted again on the nested report: counters run in front of
+     * the gate, so nothing else could stop the recursion.
+     *
+     * Anything that should be throttled — Sentry, Flare, a log write — belongs in a `reportable`
+     * instead. Those already sit behind the gate, which is the whole point of it.
      */
-    'pulse' => (bool)env('FLOOD_CONTROL_PULSE', true),
+    'counters' => [],
 
     /*
-     * The default budget: this many reports of one exception class per window, in seconds.
-     * The key is the exception class, so one loud failure cannot mask a different one.
+     * The default budget: this many reports per exception class per window, in seconds.
      */
-    'limit'  => (int)env('EXCEPTION_THROTTLE_LIMIT', 10),
-    'window' => (int)env('EXCEPTION_THROTTLE_WINDOW', 300),
+    'limit'  => env('FLOOD_CONTROL_LIMIT', 10),
+    'window' => env('FLOOD_CONTROL_WINDOW', 300),
 
     /*
-     * Per-class budgets, for the ones whose rate says nothing new after the first few. An entry
-     * covers everything under it, class or interface, and a subtype always beats its supertype.
-     * Entries with no subtype relation between them are tried in the order written, so a catch-all
-     * like `\Throwable::class` belongs last.
+     * Per-class budgets. An entry covers everything under it, class or interface, and a subtype
+     * beats its supertype. Entries with no subtype relation are tried in the order written, so a
+     * catch-all like `\Throwable::class` belongs last.
      *
      *   \Illuminate\Database\QueryException::class => ['limit' => 1, 'window' => 3600],
      *   \Throwable::class                          => ['limit' => 20],
      *
-     * Arrays, not Limit objects: `config:cache` writes this file with var_export(), and Limit has
-     * no __set_state(), so an object here turns every deploy's cache step into a LogicException.
-     * Pass a Limit at the call site instead — Report::exception() takes one.
+     * An entry sets the budget, not the bucket: the bucket is always the concrete exception class,
+     * so a catch-all of 20 gives each subclass 20. Both keys are optional and fall back to the
+     * defaults above.
      *
-     * A window is optional and falls back to the default above. A limit below 1 is treated as
-     * "no limit", not as "never report" — to silence a class entirely use `$exceptions->dontReport()`,
-     * which is the framework's own way to say it and costs nothing to evaluate.
+     * Arrays, not Limit objects: `config:cache` writes this file with var_export(), and Limit has
+     * no __set_state(), so an object here fails the cache step with a LogicException. Per call,
+     * Report::exception() takes a real Limit.
+     *
+     * A limit or window below 1 means "no limit", not "never report". To silence a class, use
+     * `$exceptions->dontReport()`.
      */
     'classes' => [
         //

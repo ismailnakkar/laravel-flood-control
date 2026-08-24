@@ -6,6 +6,7 @@ namespace FloodControl\Tests;
 
 use DomainException;
 use Exception;
+use FloodControl\Tests\Fixtures\BroadMarker;
 use FloodControl\Tests\Fixtures\MarkedException;
 use FloodControl\Tests\Fixtures\NarrowMarker;
 use LogicException;
@@ -67,6 +68,43 @@ class ClassResolutionTest extends TestCase
         $this->reportTimes(RuntimeException::class, 5);
 
         $this->assertCount(3, $this->reported);
+    }
+
+    #[Test]
+    public function a_catch_all_written_first_swallows_a_narrower_entry(): void
+    {
+        // The trap the config comment and the README both warn about: Throwable and NarrowMarker
+        // have no subtype relation, so the one written first wins.
+        config([
+            'flood-control.window'  => 300,
+            'flood-control.classes' => [
+                Throwable::class    => ['limit' => 3],
+                NarrowMarker::class => ['limit' => 1],
+            ],
+        ]);
+        $this->captureReports();
+
+        $this->reportTimes(MarkedException::class, 5);
+
+        $this->assertCount(3, $this->reported);
+    }
+
+    #[Test]
+    public function a_narrow_interface_beats_the_broad_one_it_extends(): void
+    {
+        // Written broad-first, and the narrow entry still wins: only subtype order decides here.
+        config([
+            'flood-control.window'  => 300,
+            'flood-control.classes' => [
+                BroadMarker::class  => ['limit' => 5],
+                NarrowMarker::class => ['limit' => 1],
+            ],
+        ]);
+        $this->captureReports();
+
+        $this->reportTimes(MarkedException::class, 5);
+
+        $this->assertCount(1, $this->reported);
     }
 
     #[Test]

@@ -4,22 +4,18 @@ declare(strict_types=1);
 
 namespace FloodControl\Tests;
 
-use Laravel\Pulse\Entry;
-use Laravel\Pulse\Facades\Pulse;
+use FloodControl\PulseExceptionRecorder;
+use Laravel\Pulse\Pulse as PulseInstance;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
+/** FLOOD_CONTROL_PULSE=false: Pulse behaves as if this package's counter did not exist. */
 class PulseDisabledTest extends TestCase
 {
-    /** @var list<string> */
-    private array $pulseKeys = [];
-
     protected function setUp(): void
     {
-        // Through the env, not defineEnvironment(): the recorder swap happens in register(), and
-        // Testbench applies its environment callbacks after that. A real app reads the config file
-        // during bootstrap, long before any provider registers.
+        // Via the env, so the documented FLOOD_CONTROL_PULSE key stays wired to config/flood-control.php.
         putenv('FLOOD_CONTROL_PULSE=false');
 
         parent::setUp();
@@ -35,36 +31,27 @@ class PulseDisabledTest extends TestCase
     }
 
     #[Test]
-    public function pulses_own_recorder_is_left_alone(): void
+    public function pulse_keeps_its_own_recorder(): void
     {
-        $this->assertNotFalse(config('pulse.recorders.' . PulseExceptions::class . '.enabled'));
+        $recorders = app(PulseInstance::class)->recorders();
+
+        $this->assertTrue($recorders->contains(fn (object $r): bool => $r instanceof PulseExceptions));
+        $this->assertFalse($recorders->contains(fn (object $r): bool => $r instanceof PulseExceptionRecorder));
     }
 
     #[Test]
-    public function nothing_is_counted_by_the_package(): void
-    {
-        Pulse::shouldReceive('record')->andReturnUsing(function (string $type, string $key): Entry {
-            $this->pulseKeys[] = "{$type}|{$key}";
-
-            return new Entry(timestamp: time(), type: $type, key: $key, value: 1);
-        });
-        $this->captureReports();
-
-        report(new RuntimeException('boom'));
-
-        $this->assertSame([], $this->pulseKeys);
-    }
-
-    #[Test]
-    public function the_throttle_still_works(): void
+    public function only_survivors_are_counted(): void
     {
         config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
         $this->captureReports();
 
-        foreach (range(1, 3) as $i) {
-            report(new RuntimeException("boom {$i}"));
-        }
+        $counted = $this->pulseExceptions(function (): void {
+            foreach (range(1, 4) as $i) {
+                report(new RuntimeException("boom {$i}"));
+            }
+        });
 
         $this->assertCount(1, $this->reported);
+        $this->assertCount(1, $counted);
     }
 }

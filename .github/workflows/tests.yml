@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,24 +19,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # laravel/pulse is a suggestion, so the suite has to pass without it too.
-        pulse: [with, without]
+        php: ['8.2', '8.3', '8.4', '8.5']
+        deps: [prefer-lowest, prefer-stable]
+        pulse: [with]
+        include:
+          # laravel/pulse is a suggestion, so the suite has to pass without it too.
+          - { php: '8.5', deps: prefer-stable, pulse: without }
 
-    name: tests (${{ matrix.pulse }} pulse)
+    name: PHP ${{ matrix.php }} · ${{ matrix.deps }} · ${{ matrix.pulse }} pulse
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.5'
+          php-version: ${{ matrix.php }}
           coverage: none
 
-      - run: composer update --prefer-dist --no-interaction --no-progress
-
       - if: matrix.pulse == 'without'
-        run: composer remove --dev laravel/pulse -W --no-interaction
+        run: composer remove --dev laravel/pulse --no-update --no-interaction
 
-      - run: vendor/bin/pint --test
+      - run: composer update --${{ matrix.deps }} --prefer-dist --no-interaction --no-progress
+
+      - if: matrix.php == '8.5' && matrix.deps == 'prefer-stable' && matrix.pulse == 'with'
+        run: vendor/bin/pint --test
 
       - run: vendor/bin/phpunit

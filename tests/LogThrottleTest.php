@@ -5,79 +5,169 @@ declare(strict_types=1);
 namespace FloodControl\Tests;
 
 use FloodControl\LogThrottle;
-use Illuminate\Contracts\Cache\Repository as Cache;
+use FloodControl\Tests\Fixtures\Channel;
+use Illuminate\Cache\CacheManager;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Log;
+use Monolog\Handler\NullHandler;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 use RuntimeException;
 
 class LogThrottleTest extends TestCase
 {
-    #[Test]
-    public function the_first_line_in_a_window_is_logged_and_the_rest_are_not(): void
+    /** @var list<string> every line that reached a handler, as "{level}|{message}" */
+    private array $written = [];
+
+    protected function defineEnvironment($app): void
     {
-        $this->assertNotInstanceOf(NullLogger::class, LogThrottle::once('a-key', 60));
-        $this->assertInstanceOf(NullLogger::class, LogThrottle::once('a-key', 60));
+        $app['config']->set('logging.default', 'discard');
+        $app['config']->set('logging.channels.discard', ['driver' => 'monolog', 'handler' => NullHandler::class]);
+        $app['config']->set('logging.channels.audit', ['driver' => 'monolog', 'handler' => NullHandler::class]);
+    }
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->written = [];
+
+        Log::listen(function (MessageLogged $message): void {
+            $this->written[] = "{$message->level}|{$message->message}";
+        });
+    }
+
+    #[Test]
+    public function the_first_line_in_a_window_is_written_and_the_rest_are_not(): void
+    {
+        LogThrottle::once('a-key', 60)->warning('first');
+        LogThrottle::once('a-key', 60)->warning('second');
+
+        $this->assertSame(['warning|first'], $this->written);
     }
 
     #[Test]
     public function the_gate_lives_in_the_cache_not_in_an_instance(): void
     {
-        // The property that matters: a per-worker gate would satisfy every "logged once" assertion
-        // while each worker still emitted the line.
+        // A per-worker gate would satisfy every "logged once" assertion while each worker still
+        // emitted the line.
         LogThrottle::once('shared', 60);
 
-        $this->assertTrue(app(Cache::class)->has('log-throttle:shared'));
+        $store = $this->app->make(CacheManager::class)->store(config('cache.limiter'));
+
+        $this->assertTrue($store->has('log-throttle:' . hash('xxh128', 'shared')));
+    }
+
+    #[Test]
+    public function the_window_ends(): void
+    {
+        LogThrottle::once('expiring', 60)->error('first');
+        $this->travel(61)->seconds();
+        LogThrottle::once('expiring', 60)->error('second');
+
+        $this->assertSame(['error|first', 'error|second'], $this->written);
     }
 
     #[Test]
     public function distinct_keys_hold_separate_gates(): void
     {
-        $this->assertNotInstanceOf(NullLogger::class, LogThrottle::once('key-a', 60));
-        $this->assertNotInstanceOf(NullLogger::class, LogThrottle::once('key-b', 60));
+        LogThrottle::once('key-a', 60)->error('a');
+        LogThrottle::once('key-b', 60)->error('b');
+
+        $this->assertSame(['error|a', 'error|b'], $this->written);
     }
 
     #[Test]
     public function a_null_window_never_throttles(): void
     {
-        $this->assertNotInstanceOf(NullLogger::class, LogThrottle::once('never', null));
-        $this->assertNotInstanceOf(NullLogger::class, LogThrottle::once('never', null));
+        LogThrottle::once('never', null)->info('one');
+        LogThrottle::once('never', null)->info('two');
+
+        $this->assertSame(['info|one', 'info|two'], $this->written);
     }
 
     #[Test]
     public function a_window_below_one_never_throttles(): void
     {
         // Same rule as the exception side: a 0 from an empty config value must not silence a line.
-        $this->assertNotInstanceOf(NullLogger::class, LogThrottle::once('zero', 0));
-        $this->assertNotInstanceOf(NullLogger::class, LogThrottle::once('zero', 0));
+        LogThrottle::once('zero', 0)->info('one');
+        LogThrottle::once('zero', 0)->info('two');
+
+        $this->assertSame(['info|one', 'info|two'], $this->written);
     }
 
     #[Test]
     public function a_cache_failure_logs_rather_than_throwing(): void
     {
         // Logging must never break its caller, and an outage is when the line is worth most.
-        $this->app->bind(Cache::class, function (): Cache {
-            $cache = $this->createStub(Cache::class);
-            $cache->method('add')->willThrowException(new RuntimeException('redis is down'));
+        $this->app->bind('cache', function (): CacheManager {
+            $cache = $this->createStub(CacheManager::class);
+            $cache->method('store')->willThrowException(new RuntimeException('redis is down'));
 
             return $cache;
         });
 
-        $logger = LogThrottle::once('outage', 60);
+        LogThrottle::once('outage', 60)->error('one');
+        LogThrottle::once('outage', 60)->error('two');
 
-        $this->assertNotInstanceOf(NullLogger::class, $logger);
-        $this->assertInstanceOf(LoggerInterface::class, $logger);
+        $this->assertSame(['error|one', 'error|two'], $this->written);
+    }
+
+    #[Test]
+    public function a_suppressed_line_fires_no_log_event(): void
+    {
+        // A NullLogger would be silent too, but Telescope, Log::listen() and Sentry breadcrumbs all
+        // hang off MessageLogged — a throttle that still fires it throttles nothing that matters.
+        LogThrottle::once('quiet', 60)->error('first');
+        LogThrottle::once('quiet', 60)->error('second');
+
+        $this->assertSame(['error|first'], $this->written);
+    }
+
+    #[Test]
+    public function a_suppressed_logger_accepts_everything_the_real_one_does(): void
+    {
+        // The throttled return value has to be a drop-in, or every call site that chains fatals on
+        // its second pass through the window.
+        LogThrottle::once('chained', 60)->withContext(['a' => 1])->warning(['array' => 'message']);
+        LogThrottle::once('chained', 60)->withContext(['a' => 1])->warning(['array' => 'message']);
+
+        $this->assertCount(1, $this->written);
     }
 
     #[Test]
     public function it_can_throttle_a_named_channel(): void
     {
-        config(['logging.channels.audit' => ['driver' => 'single', 'path' => storage_path('logs/audit.log')]]);
+        $this->assertSame(Log::channel('audit'), LogThrottle::once('channelled', 60, 'audit'));
 
-        $first = LogThrottle::once('channelled', 60, 'audit');
+        LogThrottle::once('channelled', 60, 'audit')->error('suppressed');
 
-        $this->assertSame(Log::channel('audit'), $first);
-        $this->assertInstanceOf(NullLogger::class, LogThrottle::once('channelled', 60, 'audit'));
+        $this->assertSame([], $this->written);
+    }
+
+    #[Test]
+    public function it_can_throttle_an_enum_channel(): void
+    {
+        // Log::driver() only resolves enums itself from Laravel 13.3; before that it trims them.
+        $this->assertSame(Log::channel('audit'), LogThrottle::once('enumerated', 60, Channel::Audit));
+    }
+
+    #[Test]
+    public function it_can_throttle_an_on_demand_stack(): void
+    {
+        LogThrottle::once('stacked', 60, ['discard', 'audit'])->error('first');
+        LogThrottle::once('stacked', 60, ['discard', 'audit'])->error('second');
+
+        $this->assertSame(['error|first'], $this->written);
+    }
+
+    #[Test]
+    public function it_can_throttle_a_logger_it_is_handed(): void
+    {
+        $built = Log::build(['driver' => 'monolog', 'handler' => NullHandler::class]);
+
+        $this->assertSame($built, LogThrottle::once('built', 60, $built));
+        $this->assertNotSame($built, LogThrottle::once('built', 60, $built));
+        $this->assertInstanceOf(LoggerInterface::class, LogThrottle::once('built', 60, $built));
     }
 }

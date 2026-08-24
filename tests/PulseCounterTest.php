@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace FloodControl\Tests;
 
+use FloodControl\PulseExceptionRecorder;
 use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Contracts\Debug\ExceptionHandler;
-use Laravel\Pulse\Entry;
+use Illuminate\View\ViewException;
+use Laravel\Pulse\Events\ExceptionReported;
 use Laravel\Pulse\Facades\Pulse;
+use Laravel\Pulse\Pulse as PulseInstance;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use PHPUnit\Framework\Attributes\Test;
-use ReflectionMethod;
 use RuntimeException;
 
 class PulseCounterTest extends TestCase
@@ -22,16 +23,75 @@ class PulseCounterTest extends TestCase
         $this->skipWithoutPulse();
     }
 
-    /** @var list<string> every Pulse::record() since capturePulseKeys(), as "{type}|{key}" */
-    private array $pulseKeys = [];
-
     #[Test]
     public function every_exception_is_counted_even_when_the_report_is_throttled(): void
     {
         // The whole reason the counter is a throttle callback and not a reportable: the gate runs
-        // first, so a counter behind it could only ever agree with the gate.
+        // first, so a counter behind it could only ever agree with the gate. Four, not five: the one
+        // survivor must not also be counted by a reportable.
         config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
-        $this->capturePulseKeys();
+        $this->captureReports();
+
+        $counted = $this->pulseExceptions(function (): void {
+            foreach (range(1, 4) as $i) {
+                report(new RuntimeException("boom {$i}"));
+            }
+        });
+
+        $this->assertCount(1, $this->reported);
+        $this->assertCount(4, $counted);
+    }
+
+    #[Test]
+    public function it_emits_the_shape_the_stock_pulse_card_reads(): void
+    {
+        $counted = $this->pulseExceptions(fn () => report(new RuntimeException('boom')));
+
+        $this->assertSame(RuntimeException::class, json_decode($counted[0], true)[0]);
+    }
+
+    #[Test]
+    public function it_keys_a_view_exception_under_the_exception_the_view_threw(): void
+    {
+        // Delegation earns this: keying on $e::class puts every Blade error on the card as
+        // ViewException at a compiled-view path, which names neither the fault nor the file.
+        $counted = $this->pulseExceptions(fn () => report(new ViewException(
+            'Undefined variable (View: /app/resources/views/orders.blade.php)',
+            0, 1, '/app/storage/framework/views/9f2.php', 12,
+            new RuntimeException('inner'),
+        )));
+
+        $this->assertSame(RuntimeException::class, json_decode($counted[0], true)[0]);
+    }
+
+    #[Test]
+    public function it_honours_pulses_own_ignore_list(): void
+    {
+        // The settings key on Pulse's class name, so only the stock recorder reads them right.
+        config(['pulse.recorders.' . PulseExceptions::class . '.ignore' => ['/^' . preg_quote(RuntimeException::class, '/') . '$/']]);
+
+        $this->assertSame([], $this->pulseExceptions(fn () => report(new RuntimeException('boom'))));
+    }
+
+    #[Test]
+    public function pulse_report_still_records_after_the_swap(): void
+    {
+        // Pulse's recorder counts Pulse::report() from an event listener, not from the reportable
+        // this package drops.
+        $counted = $this->pulseExceptions(
+            fn () => event(new ExceptionReported(new RuntimeException('boom'))),
+        );
+
+        $this->assertCount(1, $counted);
+    }
+
+    #[Test]
+    public function a_counter_failure_does_not_disable_the_gate(): void
+    {
+        // The handler rescues a throwing throttle callback into "do not throttle", so an unguarded
+        // throw here would turn counting into a kill switch for the whole package.
+        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        Pulse::partialMock()->shouldReceive('recorders')->andThrow(new RuntimeException('pulse is down'));
         $this->captureReports();
 
         foreach (range(1, 4) as $i) {
@@ -39,61 +99,20 @@ class PulseCounterTest extends TestCase
         }
 
         $this->assertCount(1, $this->reported);
-        $this->assertCount(4, $this->pulseKeys);
     }
 
     #[Test]
-    public function it_emits_the_shape_the_stock_pulse_card_reads(): void
+    public function pulse_resolves_this_packages_recorder_in_place_of_its_own(): void
     {
-        $this->capturePulseKeys();
+        $recorders = app(PulseInstance::class)->recorders();
 
-        report(new RuntimeException('boom'));
-
-        [$type, $key] = explode('|', $this->pulseKeys[0], 2);
-
-        $this->assertSame('exception', $type);
-        $this->assertSame(RuntimeException::class, json_decode($key, true)[0]);
-    }
-
-    #[Test]
-    public function the_location_matches_what_pulses_own_recorder_would_produce(): void
-    {
-        // Reflection on purpose: if a Pulse upgrade changes resolveLocation(), the stock card
-        // silently splits into two series, and this is the only thing that would notice.
-        $e = new RuntimeException('boom');
-        $recorder = app(PulseExceptions::class);
-        $resolveLocation = new ReflectionMethod($recorder, 'resolveLocation');
-
-        $this->capturePulseKeys();
-        report($e);
-
-        $ours = json_decode(explode('|', $this->pulseKeys[0], 2)[1], true);
-
-        $this->assertSame($resolveLocation->invoke($recorder, $e), $ours[1]);
-    }
-
-    #[Test]
-    public function pulses_own_recorder_is_turned_off_so_survivors_are_not_counted_twice(): void
-    {
-        $this->assertFalse(config('pulse.recorders.' . PulseExceptions::class . '.enabled'));
-    }
-
-    #[Test]
-    public function the_reportable_ordering_that_makes_this_necessary_still_holds(): void
-    {
-        // If Laravel ever moved the throttle gate behind the reportable callbacks, replacing Pulse's
-        // recorder would stop being necessary — and this whole class would be doing harm.
-        $handler = new ReflectionMethod(app(ExceptionHandler::class), 'shouldntReport');
-        $source = file($handler->getFileName());
-        $body = implode('', array_slice($source, $handler->getStartLine() - 1, $handler->getEndLine() - $handler->getStartLine() + 1));
-
-        $this->assertStringContainsString('$this->throttle($e)', $body);
+        $this->assertTrue($recorders->contains(fn (object $r): bool => $r instanceof PulseExceptionRecorder));
+        $this->assertFalse($recorders->contains(fn (object $r): bool => $r instanceof PulseExceptions));
     }
 
     #[Test]
     public function the_recorder_swap_is_announced_by_artisan_about(): void
     {
-        // Turning off another package's recorder is defensible; doing it invisibly is not.
         // Against the real buffer: `about` renders through its own formatter, which the
         // expectsOutputToContain() assertions do not see.
         $this->withoutMockingConsoleOutput();
@@ -102,18 +121,8 @@ class PulseCounterTest extends TestCase
         $output = $this->app[Kernel::class]->output();
 
         $this->assertStringContainsString('Pulse counter', $output);
-        $this->assertStringContainsString('replaces Pulse recorder', $output);
-    }
-
-    /** Mocks Pulse so the keys a report would emit are observable without a store. */
-    private function capturePulseKeys(): void
-    {
-        $this->pulseKeys = [];
-
-        Pulse::shouldReceive('record')->andReturnUsing(function (string $type, string $key): Entry {
-            $this->pulseKeys[] = "{$type}|{$key}";
-
-            return new Entry(timestamp: time(), type: $type, key: $key, value: 1);
-        });
+        $this->assertStringContainsString('counts in front of the gate', $output);
+        $this->assertStringContainsString('10 per 300s', $output);
+        $this->assertStringContainsString('ENABLED', $output);
     }
 }
