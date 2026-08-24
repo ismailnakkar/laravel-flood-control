@@ -1,0 +1,35 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # laravel/pulse is a suggestion, so the suite has to pass without it too.
+        pulse: [with, without]
+
+    name: tests (${{ matrix.pulse }} pulse)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+
+      - run: composer update --prefer-dist --no-interaction --no-progress
+
+      - if: matrix.pulse == 'without'
+        run: composer remove --dev laravel/pulse -W --no-interaction
+
+      - run: vendor/bin/pint --test
+
+      - run: vendor/bin/phpunit
