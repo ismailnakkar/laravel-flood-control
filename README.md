@@ -22,7 +22,7 @@ php artisan vendor:publish --tag=flood-control-config   # to change them
 
 ```php
 // config/flood-control.php
-'enabled' => env('FLOOD_CONTROL_ENABLED', true),   // false stops all throttling
+'enabled' => env('FLOOD_CONTROL_ENABLED', true),   // false stops exception throttling
 'limit'   => env('FLOOD_CONTROL_LIMIT', 10),
 'window'  => env('FLOOD_CONTROL_WINDOW', 300),
 
@@ -81,7 +81,9 @@ it stays out of Telescope and Sentry breadcrumbs too.
 stack, an enum, a logger you already hold, or null for the default.
 
 The gate is `Cache::add()` on the `cache.limiter` store, so it holds across workers rather than per
-process. A `null` or sub-1 window never throttles, and a cache failure lets the line through.
+process. A `null` or sub-1 window never throttles, and a cache failure lets the line through. This
+half reads no `flood-control` config — the window is the one you pass, and `FLOOD_CONTROL_ENABLED`
+does not reach it.
 
 **The key is yours to pick** — a log line has no class to key on. Keep it a literal or a code-owned
 value; a key built from client-supplied text is unbounded cache cardinality.

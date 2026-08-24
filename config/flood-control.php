@@ -5,8 +5,9 @@ declare(strict_types=1);
 return [
 
     /*
-     * Master switch. Off, nothing is throttled — per-call Report::exception() limits included.
-     * The Pulse counter below is unaffected.
+     * Master switch for the exception gate. Off, no report is throttled — per-call
+     * Report::exception() limits included. The Pulse counter below is unaffected, and so is
+     * LogThrottle::once(), which carries its own window per call and reads nothing from here.
      */
     'enabled' => env('FLOOD_CONTROL_ENABLED', true),
 
