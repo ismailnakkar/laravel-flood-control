@@ -12,6 +12,7 @@ use InvalidArgumentException;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use ReflectionObject;
 use Throwable;
+use WeakMap;
 
 class FloodControlServiceProvider extends ServiceProvider
 {
@@ -19,9 +20,14 @@ class FloodControlServiceProvider extends ServiceProvider
 
     private bool $countersRunning = false;
 
+    /** @var WeakMap<object, true> Handlers already wired. */
+    private WeakMap $wired;
+
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__ . '/../config/flood-control.php', 'flood-control');
+
+        $this->wired = new WeakMap;
 
         $this->app->singleton(ThrottleConfig::class);
 
@@ -57,6 +63,17 @@ class FloodControlServiceProvider extends ServiceProvider
         // added during bootstrap, so they sit ahead of these and win.
         $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $resolved): void {
             $handler = self::unwrap($resolved);
+            $target = $handler ?? $resolved;
+
+            // Once per handler, not once per resolve. callAfterResolving() registers its hook and
+            // then calls back for an already-resolved instance, so a decorated binding arrives
+            // twice and unwraps to the same object both times — and dontReportWhen() appends, which
+            // would count every exception once per registration.
+            if (isset($this->wired[$target])) {
+                return;
+            }
+
+            $this->wired[$target] = true;
 
             if ($handler === null) {
                 $this->countPulseFromAReportable($resolved);
