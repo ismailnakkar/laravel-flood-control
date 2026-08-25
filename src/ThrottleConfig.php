@@ -24,22 +24,23 @@ final readonly class ThrottleConfig
         return (bool)$this->config->get('flood-control.enabled', true);
     }
 
-    /** @return array{limit: int, window: int} */
-    public function for(Throwable $e): array
+    public function for(Throwable $e): Budget
     {
-        $limit = (int)$this->config->get('flood-control.limit', self::DEFAULT_LIMIT);
-        $window = (int)$this->config->get('flood-control.window', self::DEFAULT_WINDOW);
+        $default = Budget::of(
+            (int)$this->config->get('flood-control.limit', self::DEFAULT_LIMIT),
+            (int)$this->config->get('flood-control.window', self::DEFAULT_WINDOW),
+        );
+
         $classes = (array)$this->config->get('flood-control.classes', []);
         $match = self::mostSpecific($e, array_keys($classes));
 
         if ($match === null) {
-            return ['limit' => $limit, 'window' => $window];
+            return $default;
         }
 
-        return [
-            'limit'  => (int)($classes[$match]['limit'] ?? $limit),
-            'window' => (int)($classes[$match]['window'] ?? $window),
-        ];
+        $entry = $classes[$match];
+
+        return $entry instanceof Budget ? $entry : Budget::fromConfig((array)$entry, $default);
     }
 
     /**

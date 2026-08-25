@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FloodControl\Tests;
 
+use FloodControl\Budget;
 use FloodControl\FloodControlServiceProvider;
 use FloodControl\ThrottleConfig;
 use Illuminate\Contracts\Console\Kernel;
@@ -28,8 +29,8 @@ class DefaultsTest extends TestCase
     #[Test]
     public function the_shipped_window_is_read_from_the_package_config(): void
     {
-        $this->assertSame(
-            ['limit' => 10, 'window' => 300],
+        $this->assertEquals(
+            Budget::of(10, 300),
             app(ThrottleConfig::class)->for(new RuntimeException('boom')),
         );
     }
@@ -41,8 +42,8 @@ class DefaultsTest extends TestCase
         // and a fallback of 0 would read as "no limit" — the package silently off.
         config(['flood-control' => null]);
 
-        $this->assertSame(
-            ['limit' => 10, 'window' => 300],
+        $this->assertEquals(
+            Budget::of(10, 300),
             app(ThrottleConfig::class)->for(new RuntimeException('boom')),
         );
 

@@ -33,9 +33,7 @@ final class ExceptionThrottle
             return $override;
         }
 
-        ['limit' => $limit, 'window' => $window] = $config->for($e);
-
-        return self::limit($limit, $window);
+        return $config->for($e)->toLimit();
     }
 
     /**
@@ -44,9 +42,9 @@ final class ExceptionThrottle
      */
     public static function override(Throwable $e, Limit $limit): void
     {
-        self::overrides()[$e] = $limit->maxAttempts > 0 && $limit->decaySeconds > 0
-            ? $limit
-            : Limit::none();
+        self::overrides()[$e] = Budget::of($limit->maxAttempts, $limit->decaySeconds)->isUnlimited()
+            ? Limit::none()
+            : $limit;
     }
 
     /**
@@ -66,15 +64,6 @@ final class ExceptionThrottle
         }
 
         return null;
-    }
-
-    /** A limit or window below 1 means no limit, not "report nothing": an empty env var reads as 0. */
-    private static function limit(int $limit, int $window): Limit
-    {
-        return $limit > 0 && $window > 0
-            // Empty key: the handler falls back to one bucket per exception class, hashed.
-            ? new Limit(maxAttempts: $limit, decaySeconds: $window)
-            : Limit::none();
     }
 
     /** @return WeakMap<Throwable, Limit> */

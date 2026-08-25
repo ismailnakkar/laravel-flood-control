@@ -39,11 +39,11 @@ final class Report
     {
         $e = new OperationalError($message, previous: $previous);
 
-        ['limit' => $limit, 'window' => $window] = app(ThrottleConfig::class)->for($e);
-
         // Bucketed on the call site, not on OperationalError: one shared bucket would let the
         // noisiest caller spend the budget for every other one.
-        self::exception($e, $context, new Limit(self::callSite(), $limit, $window));
+        $limit = app(ThrottleConfig::class)->for($e)->toLimit(self::callSite());
+
+        self::exception($e, $context, $limit);
     }
 
     /**

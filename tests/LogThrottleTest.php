@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FloodControl\Tests;
 
+use FloodControl\Budget;
 use FloodControl\LogThrottle;
 use FloodControl\Tests\Fixtures\Channel;
 use Illuminate\Cache\CacheManager;
@@ -44,6 +45,48 @@ class LogThrottleTest extends TestCase
         LogThrottle::once('a-key', 60)->warning('second');
 
         $this->assertSame(['warning|first'], $this->written);
+    }
+
+    #[Test]
+    public function a_bare_log_spy_is_enough_to_assert_on(): void
+    {
+        // Resolving Log::driver() here returned null under a bare spy, so every throttled line in a
+        // suite blew up with a TypeError until the caller stubbed driver() by hand.
+        Log::spy();
+
+        LogThrottle::once('spy-key', 60)->warning('recorded');
+
+        Log::shouldHaveReceived('warning')->with('recorded')->once();
+    }
+
+    #[Test]
+    public function times_writes_the_budget_and_then_stops(): void
+    {
+        foreach (range(1, 5) as $i) {
+            LogThrottle::times('burst', Budget::of(3, 300))->warning("line {$i}");
+        }
+
+        $this->assertSame(['warning|line 1', 'warning|line 2', 'warning|line 3'], $this->written);
+    }
+
+    #[Test]
+    public function times_keeps_separate_keys_apart(): void
+    {
+        LogThrottle::times('one', Budget::of(1, 300))->warning('from one');
+        LogThrottle::times('one', Budget::of(1, 300))->warning('from one again');
+        LogThrottle::times('two', Budget::of(1, 300))->warning('from two');
+
+        $this->assertSame(['warning|from one', 'warning|from two'], $this->written);
+    }
+
+    #[Test]
+    public function an_unlimited_budget_never_throttles(): void
+    {
+        foreach (range(1, 3) as $i) {
+            LogThrottle::times('no-gate', Budget::unlimited())->warning("line {$i}");
+        }
+
+        $this->assertCount(3, $this->written);
     }
 
     #[Test]

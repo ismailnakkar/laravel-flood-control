@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FloodControl\Tests;
 
+use FloodControl\Budget;
 use FloodControl\ThrottleConfig;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -50,6 +51,20 @@ class ConfigValidationTest extends TestCase
     }
 
     #[Test]
+    public function a_budget_object_in_classes_is_used_rather_than_silently_ignored(): void
+    {
+        // (array) on a Budget yields times/seconds, not limit/window, so a naive read falls back to
+        // the default budget and throttles at the wrong rate with nothing to show for it.
+        $this->classes = [RuntimeException::class => Budget::perHour(7)];
+        $this->refreshApplication();
+
+        $this->assertEquals(
+            Budget::perHour(7),
+            app(ThrottleConfig::class)->for(new RuntimeException('boom')),
+        );
+    }
+
+    #[Test]
     public function it_accepts_a_well_formed_budget(): void
     {
         $this->classes = [
@@ -59,8 +74,8 @@ class ConfigValidationTest extends TestCase
 
         $this->refreshApplication();
 
-        $this->assertSame(
-            ['limit' => 1, 'window' => 60],
+        $this->assertEquals(
+            Budget::of(1, 60),
             app(ThrottleConfig::class)->for(new RuntimeException('boom')),
         );
     }
@@ -73,8 +88,8 @@ class ConfigValidationTest extends TestCase
 
         $this->refreshApplication();
 
-        $this->assertSame(
-            ['limit' => 10, 'window' => 3600],
+        $this->assertEquals(
+            Budget::of(10, 3600),
             app(ThrottleConfig::class)->for(new RuntimeException('boom')),
         );
     }

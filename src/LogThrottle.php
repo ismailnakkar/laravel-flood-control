@@ -6,6 +6,7 @@ namespace FloodControl;
 
 use BackedEnum;
 use Illuminate\Cache\NullStore;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Logger;
 use Illuminate\Support\Facades\Log;
 use Monolog\Logger as Monolog;
@@ -35,9 +36,10 @@ final class LogThrottle
         ?int $seconds,
         LoggerInterface|UnitEnum|array|string|null $channel = null,
     ): LoggerInterface {
+        $budget = Budget::of(1, $seconds ?? 0);
         $logger = self::logger($channel);
 
-        if ($seconds === null || $seconds < 1) {
+        if ($budget->isUnlimited()) {
             return $logger;
         }
 
@@ -49,7 +51,39 @@ final class LogThrottle
                 return $logger;
             }
 
-            return $cache->add(self::cacheKey($key), true, $seconds) ? $logger : self::discard();
+            return $cache->add(self::cacheKey($key), true, $budget->seconds) ? $logger : self::discard();
+        } catch (Throwable) {
+            // Never throw into the caller: a cache outage is exactly when this line matters.
+            return $logger;
+        }
+    }
+
+    /**
+     * The real logger for the first $budget->times calls in each window, a discarding one after.
+     *
+     * `once()` is the atomic form and stays the common path; this one counts, so a burst across
+     * workers can let one extra line through — the same trade the exception gate already makes.
+     *
+     * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel
+     */
+    public static function times(
+        string $key,
+        Budget $budget,
+        LoggerInterface|UnitEnum|array|string|null $channel = null,
+    ): LoggerInterface {
+        $logger = self::logger($channel);
+
+        if ($budget->isUnlimited()) {
+            return $logger;
+        }
+
+        try {
+            return app(RateLimiter::class)->attempt(
+                self::cacheKey($key),
+                $budget->times,
+                static fn (): bool => true,
+                $budget->seconds,
+            ) ? $logger : self::discard();
         } catch (Throwable) {
             // Never throw into the caller: a cache outage is exactly when this line matters.
             return $logger;
@@ -65,7 +99,10 @@ final class LogThrottle
         }
 
         return match (true) {
-            $channel === null                   => Log::driver(),
+            // The manager, not Log::driver() behind it: the driver call is what a bare Log::spy()
+            // stubs to null, turning every throttled line in a test suite into a TypeError.
+            // LogManager forwards every level, and withContext()/listen() through __call.
+            $channel === null                   => app('log'),
             $channel instanceof LoggerInterface => $channel,
             is_array($channel)                  => Log::stack($channel),
             default                             => Log::channel($channel),

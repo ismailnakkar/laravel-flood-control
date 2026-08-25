@@ -38,8 +38,12 @@ php artisan vendor:publish --tag=flood-control-config   # to change them
   20 gives each subclass 20 of its own.
 - A limit or window below 1 means *no limit*, not *never report*. To silence a class, use
   `$exceptions->dontReport()`.
-- Budgets are arrays, not `Limit` objects — `config:cache` writes config with `var_export()`.
-  Malformed entries throw at boot, naming the entry; the check is skipped once config is cached.
+- Budgets are arrays, not `Limit` objects — `config:cache` writes config with `var_export()`, and
+  `Limit` has no `__set_state()`. Malformed entries throw at boot, naming the entry; the check is
+  skipped once config is cached.
+- A `Budget` works here too, if you prefer it to the array — `QueryException::class =>
+  Budget::perHour(3)`. It survives `config:cache`. Arrays stay the default because the top-level
+  `limit` and `window` are env-driven and read better that way.
 
 ### Per call
 
@@ -101,10 +105,27 @@ LogThrottle::once('feed-stale', 900, ['single', 'slack'])->warning('Feed is stal
 once(string $key, ?int $seconds, LoggerInterface|UnitEnum|array|string|null $channel = null)
 ```
 
-The first call in the window returns the real logger, the rest return one that discards. Both are an
-`Illuminate\Log\Logger`, so every PSR level, `withContext()` and array messages work either way — only
-`listen()` differs, which throws on the discarding one. A discarded line fires no `MessageLogged`, so
+The first call in the window returns the real logger, the rest return one that discards. Every PSR
+level, `withContext()` and array messages work either way — only `listen()` differs, which throws on
+the discarding one. A discarded line fires no `MessageLogged`, so
 it stays out of Telescope and Sentry breadcrumbs too.
+
+For more than one line per window, pass a `Budget`:
+
+```php
+use FloodControl\Budget;
+
+LogThrottle::times('shadow-source-failed', Budget::of(3, 300))->warning('Shadow source failed');
+LogThrottle::times('feed-stale', Budget::perHour(2))->warning('Feed is stale');
+```
+
+```php
+Budget::of(3, 600)   Budget::perMinute(3)   Budget::perHour(1)   Budget::perDay(5)   Budget::unlimited()
+```
+
+`once()` is the atomic form and stays the common path — it gates on a single `Cache::add()`, so
+exactly one line survives a burst. `times()` counts instead, so a burst across workers can let one
+extra line through; that is the same trade the exception gate already makes.
 
 `$channel` takes anything the log manager does: a channel or stack name, an array for an on-demand
 stack, an enum, a logger you already hold, or null for the default.
@@ -196,8 +217,26 @@ composer test     # phpunit
 composer check    # pint --test, then phpunit
 ```
 
-`LogThrottle::once()` resolves through `Log::driver()`, which a bare `Log::spy()` stubs to `null`:
+A bare `Log::spy()` is enough — the throttle resolves the log manager, not the driver behind it, so
+there is nothing to stub:
 
 ```php
-Log::spy()->shouldReceive('driver')->andReturnSelf();
+Log::spy();
+
+LogThrottle::once('origin-denied', 60)->warning('Origin not allowed');
+
+Log::shouldHaveReceived('warning')->with('Origin not allowed')->once();
 ```
+
+## Upgrading to 2.0
+
+`ThrottleConfig::for()` returns a `Budget` instead of `array{limit: int, window: int}`. Nothing else
+changed: config stays arrays, every option keeps its name, and both throttles behave as before.
+
+```php
+['limit' => $limit, 'window' => $window] = $config->for($e);   // 1.x
+$budget = $config->for($e);                                    // 2.0 — $budget->times, ->seconds
+```
+
+`Budget` is where "below 1 means no limit, not never" now lives, instead of being spelled out
+separately in each throttle. `Budget::toLimit($key)` builds the `Limit` the handler consumes.

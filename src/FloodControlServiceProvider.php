@@ -198,6 +198,10 @@ class FloodControlServiceProvider extends ServiceProvider
                 );
             }
 
+            if ($budget instanceof Budget) {
+                continue;
+            }
+
             if (! is_array($budget) || $budget === []) {
                 throw new InvalidArgumentException(
                     "flood-control.classes.[{$class}]: expected ['limit' => ?int, 'window' => ?int].",
