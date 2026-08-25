@@ -77,8 +77,16 @@ another's budget — and a `previous` is evidence, not identity, so it does not 
 Report::error('Feed fetch failed', ['feed' => $id], previous: $e);
 ```
 
-Chaining beats flattening the cause into context: the sink keeps its stack trace. To budget these
-together, name the type in `classes`:
+Chaining beats flattening the cause into context: the sink keeps its stack trace.
+
+A line with its own pace — a circuit breaker you only want to hear from twice a day — takes a
+`Budget`. It changes the pace, never the bucket, so a slow line still cannot be spent by a busy one:
+
+```php
+Report::error('Payment circuit breaker opened', budget: Budget::perDay(2));
+```
+
+To budget them all together instead, name the type in `classes`:
 
 ```php
 \FloodControl\OperationalError::class => ['limit' => 3, 'window' => 600],
@@ -103,14 +111,20 @@ LogThrottle::once('feed-stale', 900, ['single', 'slack'])->warning('Feed is stal
 
 ```php
 once(string $key, ?int $seconds, LoggerInterface|UnitEnum|array|string|null $channel = null)
+times(string $key, Budget $budget, LoggerInterface|UnitEnum|array|string|null $channel = null)
 ```
 
-The first call in the window returns the real logger, the rest return one that discards. Every PSR
-level, `withContext()` and array messages work either way — only `listen()` differs, which throws on
-the discarding one. A discarded line fires no `MessageLogged`, so
-it stays out of Telescope and Sentry breadcrumbs too.
+### Which of the two
 
-For more than one line per window, pass a `Budget`:
+|  | How it gates | What you get |
+| --- | --- | --- |
+| `once()` | one `Cache::add()` | **exactly one** line per window, even when workers race for it |
+| `times()` | a rate-limiter counter | **about** N — a concurrent burst can let an extra one through |
+
+`Cache::add()` is a single store operation, so it cannot be raced. `times()` has to read a counter
+and then increment it, and two workers can both read N-1 — the same trade the exception gate already
+makes. So `once()` is the default: reach for `times()` only when you want several samples because
+each carries different context, and an approximate count is fine.
 
 ```php
 use FloodControl\Budget;
@@ -123,17 +137,20 @@ LogThrottle::times('feed-stale', Budget::perHour(2))->warning('Feed is stale');
 Budget::of(3, 600)   Budget::perMinute(3)   Budget::perHour(1)   Budget::perDay(5)   Budget::unlimited()
 ```
 
-`once()` is the atomic form and stays the common path — it gates on a single `Cache::add()`, so
-exactly one line survives a burst. `times()` counts instead, so a burst across workers can let one
-extra line through; that is the same trade the exception gate already makes.
+### Either way
+
+The first calls in the window return the real logger and the rest return one that discards. Every PSR
+level, `withContext()` and array messages work on both — only `listen()` differs, which throws on the
+discarding one. A discarded line fires no `MessageLogged`, so it stays out of Telescope and Sentry
+breadcrumbs too.
 
 `$channel` takes anything the log manager does: a channel or stack name, an array for an on-demand
 stack, an enum, a logger you already hold, or null for the default.
 
-The gate is `Cache::add()` on the `cache.limiter` store, so it holds across workers rather than per
-process. A `null` or sub-1 window never throttles, and a cache failure lets the line through. This
-half reads no `flood-control` config — the window is the one you pass, and `FLOOD_CONTROL_ENABLED`
-does not reach it.
+Both gate on the `cache.limiter` store, so the window holds across workers rather than per process. A
+`null` or sub-1 window never throttles, and a cache failure lets the line through — an outage is
+exactly when the line matters. This half reads no `flood-control` config: the window is the one you
+pass, and `FLOOD_CONTROL_ENABLED` does not reach it.
 
 **The key is yours to pick** — a log line has no class to key on. Keep it a literal or a code-owned
 value; a key built from client-supplied text is unbounded cache cardinality.

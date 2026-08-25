@@ -26,6 +26,9 @@ final class LogThrottle
      * The real logger once per $seconds for $key, a discarding one after. A null or sub-1 window
      * never throttles.
      *
+     * Exactly one, not about one: the gate is a single Cache::add(), so workers cannot race it.
+     * Prefer this to times() unless you actually want several samples.
+     *
      * $channel takes a channel or stack name, an array of channel names for an on-demand stack, an
      * enum, a logger you already hold, or null for the default channel.
      *
@@ -61,8 +64,8 @@ final class LogThrottle
     /**
      * The real logger for the first $budget->times calls in each window, a discarding one after.
      *
-     * `once()` is the atomic form and stays the common path; this one counts, so a burst across
-     * workers can let one extra line through — the same trade the exception gate already makes.
+     * About N, not exactly N: this reads a counter and then increments it, so two workers can both
+     * see N-1 — the same trade the exception gate already makes. once() is atomic; prefer it.
      *
      * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel
      */

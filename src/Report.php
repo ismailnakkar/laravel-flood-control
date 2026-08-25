@@ -34,14 +34,20 @@ final class Report
      *
      * @param  array<string, mixed>  $context  Added for this report only; restored afterwards.
      * @param  Throwable|null  $previous  The cause, chained so the sink keeps its stack trace.
+     * @param  Budget|null  $budget  This line's own pace. Null takes the configured one.
      */
-    public static function error(string $message, array $context = [], ?Throwable $previous = null): void
-    {
+    public static function error(
+        string $message,
+        array $context = [],
+        ?Throwable $previous = null,
+        ?Budget $budget = null,
+    ): void {
         $e = new OperationalError($message, previous: $previous);
 
         // Bucketed on the call site, not on OperationalError: one shared bucket would let the
-        // noisiest caller spend the budget for every other one.
-        $limit = app(ThrottleConfig::class)->for($e)->toLimit(self::callSite());
+        // noisiest caller spend the budget for every other one. An explicit budget changes the
+        // pace, never the bucket — a line that wants its own window still gets its own counter.
+        $limit = ($budget ?? app(ThrottleConfig::class)->for($e))->toLimit(self::callSite());
 
         self::exception($e, $context, $limit);
     }

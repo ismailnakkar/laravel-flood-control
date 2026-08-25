@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace FloodControl\Tests;
 
+use FloodControl\Budget;
 use FloodControl\OperationalError;
 use FloodControl\Report;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -106,6 +107,42 @@ class ReportErrorTest extends TestCase
     private function withCause(Throwable $cause): void
     {
         Report::error('upstream unreachable', previous: $cause);
+    }
+
+    #[Test]
+    public function an_explicit_budget_sets_this_lines_own_pace(): void
+    {
+        // defineEnvironment puts the configured budget at 1 per 300s; this line wants 3.
+        $this->captureReports();
+
+        foreach (range(1, 6) as $ignored) {
+            $this->atOwnPace();
+        }
+
+        $this->assertCount(3, $this->reported);
+    }
+
+    #[Test]
+    public function an_explicit_budget_changes_the_pace_but_not_the_bucket(): void
+    {
+        // Still keyed on the call site, or a slow line would be spent by a busy one elsewhere.
+        $this->captureReports();
+
+        foreach (range(1, 6) as $ignored) {
+            $this->atOwnPace();
+        }
+
+        $this->fromFirstSite();
+
+        $this->assertSame(
+            ['own pace', 'own pace', 'own pace', 'first site'],
+            array_map(static fn (Throwable $e): string => $e->getMessage(), $this->reported),
+        );
+    }
+
+    private function atOwnPace(): void
+    {
+        Report::error('own pace', budget: Budget::of(3, 300));
     }
 
     #[Test]
