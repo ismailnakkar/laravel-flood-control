@@ -57,6 +57,35 @@ restored afterwards. A per-call `limit` caps that one report without reserving t
 spent when the report reaches the throttle, and it survives `$exceptions->map()`. `by()` replaces the
 bucket, which is how you throttle per tenant. With neither argument, use `report($e)`.
 
+### A message that needs an issue
+
+Not every alert starts life as a throwable:
+
+```php
+Report::error('Stripe webhook signature verification failed', ['gateway' => 'stripe']);
+```
+
+It goes through the gate like any other report and writes the same log line `report()` would have
+written. The bucket is the **call site**, not the exception type, so one noisy caller cannot spend
+another's budget — and a `previous` is evidence, not identity, so it does not move the bucket either:
+
+```php
+Report::error('Feed fetch failed', ['feed' => $id], previous: $e);
+```
+
+Chaining beats flattening the cause into context: the sink keeps its stack trace. To budget these
+together, name the type in `classes`:
+
+```php
+\FloodControl\OperationalError::class => ['limit' => 3, 'window' => 600],
+```
+
+Subclass `OperationalError` when a subsystem deserves its own name and grouping in the sink, and
+report that with `Report::exception()`. The `classes` entry above still covers it — entries match
+subtypes — but the bucket becomes the class rather than the call site.
+
+For narration that only ever belongs in the file, use `LogThrottle::once()` instead.
+
 ## Log lines
 
 For narration that is not an exception — a denied origin, a circuit opening, a feed going stale:
@@ -129,17 +158,36 @@ stays a `reportable` and gets the throttled stream, which needs no configuration
 
 ## Wiring a sink
 
-Sentry, Flare, Bugsnag and Rollbar need nothing from this package — they are `reportable`s, already
-behind the gate. They do need **exactly one hookup**, because wiring both sends everything twice:
+Sentry, Flare, Bugsnag and Rollbar are `reportable`s, so they already sit behind the gate and need
+nothing from this package. Their **log channel** is a different hookup, and the difference matters:
 
-| Hookup | Where | Catches |
+| Hookup | Catches | Behind the gate? |
 | --- | --- | --- |
-| Reportable | `Integration::handles($exceptions)` in `bootstrap/app.php` | reported throwables |
-| Log channel | the sink's channel in `LOG_STACK` | reported throwables **and** `Log::error(..., ['exception' => $e])` |
+| Reportable — `Integration::handles($exceptions)` | reported throwables | yes |
+| Log channel in `LOG_STACK` | reported throwables **and every log line at that channel's level** | no |
 
-Pick the log channel: it is the wider net and needs no `bootstrap/app.php` edit. Both fire when you
-wire both because a reportable returning `void` does not stop the chain — the handler short-circuits
-only on `=== false` — so `report()` still falls through to the log write.
+Wire both and every exception arrives twice: a reportable returning `void` does not stop the chain —
+the handler short-circuits only on `=== false` — so `report()` still falls through to the log write.
+
+**Prefer the reportable.** The log channel looks like the wider net, and that is exactly the trap: the
+log lines it carries never pass through `report()`, so the gate never sees them. One `Log::info()` on
+a hot path becomes one issue per request. Worse, if the channel declares no `level` of its own,
+sentry-laravel's handler defaults to `DEBUG` and takes everything you log.
+
+To keep both — exceptions through the reportable, plain log lines through the channel — give the
+channel a level and stop it handling exceptions:
+
+```php
+'sentry' => [
+    'driver'            => 'sentry',
+    'level'             => env('SENTRY_CHANNEL_LEVEL', 'error'),
+    'report_exceptions' => false,
+],
+```
+
+Note what that second key does: it drops the **whole record** when it carries an `exception` key, so
+`Log::error($msg, ['exception' => $e])` silently stops reaching the sink. Route those through
+`Report::exception()` or `Report::error()` instead — both go through the gate.
 
 ## Testing
 

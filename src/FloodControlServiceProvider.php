@@ -65,10 +65,9 @@ class FloodControlServiceProvider extends ServiceProvider
             $handler = self::unwrap($resolved);
             $target = $handler ?? $resolved;
 
-            // Once per handler, not once per resolve. callAfterResolving() registers its hook and
-            // then calls back for an already-resolved instance, so a decorated binding arrives
-            // twice and unwraps to the same object both times — and dontReportWhen() appends, which
-            // would count every exception once per registration.
+            // Once per handler, not once per resolve: callAfterResolving() also fires for an
+            // already-resolved instance, so a decorated binding unwraps to this same object twice.
+            // dontReportWhen() appends, so a second pass counts every exception again.
             if (isset($this->wired[$target])) {
                 return;
             }

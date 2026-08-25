@@ -25,4 +25,38 @@ final class Report
             ? report($e)
             : Context::scope(fn () => report($e), $context);
     }
+
+    /**
+     * A message that deserves an issue rather than a log line, reported behind the gate.
+     *
+     * For narration that only ever belongs in the file, use `LogThrottle::once()` instead. This
+     * still writes the log line too — `report()` does that itself once the gate lets it past.
+     *
+     * @param  array<string, mixed>  $context  Added for this report only; restored afterwards.
+     * @param  Throwable|null  $previous  The cause, chained so the sink keeps its stack trace.
+     */
+    public static function error(string $message, array $context = [], ?Throwable $previous = null): void
+    {
+        $e = new OperationalError($message, previous: $previous);
+
+        ['limit' => $limit, 'window' => $window] = app(ThrottleConfig::class)->for($e);
+
+        // Bucketed on the call site, not on OperationalError: one shared bucket would let the
+        // noisiest caller spend the budget for every other one.
+        self::exception($e, $context, new Limit(self::callSite(), $limit, $window));
+    }
+
+    /**
+     * The caller's file and line. Code-owned, so the key space is bounded by the source — unlike
+     * the message, which interpolates values.
+     */
+    private static function callSite(): string
+    {
+        $frame = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1] ?? [];
+
+        // eval()'d or native code has no file. One shared bucket beats keying on the message.
+        return isset($frame['file'])
+            ? 'flood-control:error:' . hash('xxh128', $frame['file'] . ':' . ($frame['line'] ?? 0))
+            : 'flood-control:error';
+    }
 }

@@ -46,9 +46,8 @@ class DecoratedHandlerTest extends TestCase
     #[Test]
     public function a_handler_reached_twice_is_wired_once(): void
     {
-        // callAfterResolving() registers its hook and then, when the handler is already resolved,
-        // calls it again for the current instance — so the decorator and the bare handler both
-        // arrive, unwrap to the same object, and every counter runs once per registration.
+        // The decorator and the bare handler both reach the provider and unwrap to the same
+        // object, so a second wiring would count every exception twice.
         $this->captureReports();
 
         foreach (range(1, 3) as $i) {
