@@ -8,6 +8,8 @@ use Illuminate\Contracts\Config\Repository;
 use Throwable;
 
 /**
+ * @internal
+ *
  * Resolves the budget for one throwable: the most specific `classes` entry it matches, or the default.
  */
 final readonly class ThrottleConfig

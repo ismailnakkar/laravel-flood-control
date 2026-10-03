@@ -14,6 +14,7 @@ use ReflectionObject;
 use Throwable;
 use WeakMap;
 
+/** @internal */
 class FloodControlServiceProvider extends ServiceProvider
 {
     private bool $countsWithPulse = false;

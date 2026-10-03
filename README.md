@@ -3,7 +3,7 @@
 Rate-limit reported exceptions and repeated log lines without going blind — Laravel Pulse still counts
 every one.
 
-Requires PHP 8.2 and Laravel 12.1 or newer.
+Requires PHP 8.2, Laravel 12.1 or newer and Monolog 3. Laravel Pulse is optional (1.x).
 
 ## Install
 
@@ -41,6 +41,8 @@ php artisan vendor:publish --tag=flood-control-config   # to change them
 - Budgets are arrays, not `Limit` objects — `config:cache` writes config with `var_export()`, and
   `Limit` has no `__set_state()`. Malformed entries throw at boot, naming the entry; the check is
   skipped once config is cached.
+- `classes` keys must exist: an unknown class throws at boot, which catches typos. For an optional
+  package's exception, guard it — `...class_exists(\Aws\Exception\AwsException::class) ? [\Aws\Exception\AwsException::class => ['limit' => 1]] : []`.
 - A `Budget` works here too, if you prefer it to the array — `QueryException::class =>
   Budget::perHour(3)`. It survives `config:cache`. Arrays stay the default because the top-level
   `limit` and `window` are env-driven and read better that way.
@@ -247,13 +249,10 @@ Log::shouldHaveReceived('warning')->with('Origin not allowed')->once();
 
 ## Upgrading to 2.0
 
-`ThrottleConfig::for()` returns a `Budget` instead of `array{limit: int, window: int}`. Nothing else
-changed: config stays arrays, every option keeps its name, and both throttles behave as before.
+Config stays arrays, every option keeps its name, and both throttles behave as before. `Budget` is
+where "below 1 means no limit, not never" now lives. `ThrottleConfig` is `@internal`; its `for()`
+now returns a `Budget`.
 
-```php
-['limit' => $limit, 'window' => $window] = $config->for($e);   // 1.x
-$budget = $config->for($e);                                    // 2.0 — $budget->times, ->seconds
-```
+## Licence
 
-`Budget` is where "below 1 means no limit, not never" now lives, instead of being spelled out
-separately in each throttle. `Budget::toLimit($key)` builds the `Limit` the handler consumes.
+MIT.

@@ -8,6 +8,7 @@ use FloodControl\Budget;
 use FloodControl\LogThrottle;
 use FloodControl\Tests\Fixtures\Channel;
 use Illuminate\Cache\CacheManager;
+use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Log;
 use Monolog\Handler\NullHandler;
@@ -152,6 +153,22 @@ class LogThrottleTest extends TestCase
 
         LogThrottle::once('outage', 60)->error('one');
         LogThrottle::once('outage', 60)->error('two');
+
+        $this->assertSame(['error|one', 'error|two'], $this->written);
+    }
+
+    #[Test]
+    public function a_cache_failure_logs_rather_than_throwing_for_times_too(): void
+    {
+        $this->app->bind(RateLimiter::class, function (): RateLimiter {
+            $limiter = $this->createStub(RateLimiter::class);
+            $limiter->method('attempt')->willThrowException(new RuntimeException('redis is down'));
+
+            return $limiter;
+        });
+
+        LogThrottle::times('outage', Budget::of(1, 60))->error('one');
+        LogThrottle::times('outage', Budget::of(1, 60))->error('two');
 
         $this->assertSame(['error|one', 'error|two'], $this->written);
     }

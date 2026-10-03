@@ -9,6 +9,8 @@ use Throwable;
 use WeakMap;
 
 /**
+ * @internal
+ *
  * The rate limit for reported exceptions. Registered as a throttle callback, so it gates inside
  * `shouldntReport()` — ahead of the log write and ahead of every `reportable` callback.
  */
@@ -45,6 +47,12 @@ final class ExceptionThrottle
         self::overrides()[$e] = Budget::of($limit->maxAttempts, $limit->decaySeconds)->isUnlimited()
             ? Limit::none()
             : $limit;
+    }
+
+    /** Drops an override report() never consumed. */
+    public static function forget(Throwable $e): void
+    {
+        self::takeOverride($e);
     }
 
     /**

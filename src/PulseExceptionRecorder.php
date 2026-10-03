@@ -12,6 +12,8 @@ use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use Throwable;
 
 /**
+ * @internal
+ *
  * Pulse's exceptions recorder, counting in front of the gate instead of behind it.
  *
  * Pulse counts from a `reportable`, which runs only for what got past shouldntReport() — so

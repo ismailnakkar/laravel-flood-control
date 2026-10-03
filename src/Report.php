@@ -21,9 +21,14 @@ final class Report
             ExceptionThrottle::override($e, $limit);
         }
 
-        $context === []
-            ? report($e)
-            : Context::scope(fn () => report($e), $context);
+        try {
+            $context === []
+                ? report($e)
+                : Context::scope(fn () => report($e), $context);
+        } finally {
+            // An early return in report() never reached the throttle: don't leave the override for a later report.
+            ExceptionThrottle::forget($e);
+        }
     }
 
     /**

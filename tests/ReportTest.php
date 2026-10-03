@@ -147,6 +147,24 @@ class ReportTest extends TestCase
     }
 
     #[Test]
+    public function an_override_the_gate_never_reached_does_not_linger(): void
+    {
+        // report() returns before the throttle when the switch is off, so nothing else would spend it.
+        config(['flood-control.enabled' => false, 'flood-control.limit' => 1, 'flood-control.window' => 300]);
+        $this->captureReports();
+
+        $e = new RuntimeException('boom');
+        Report::exception($e, limit: new Limit(maxAttempts: 0, decaySeconds: 300));
+
+        config(['flood-control.enabled' => true]);
+        report($e);
+        report($e);
+
+        // The disabled report, then one allowed and one throttled at the configured limit of 1.
+        $this->assertCount(2, $this->reported);
+    }
+
+    #[Test]
     public function an_override_survives_exception_mapping(): void
     {
         // $exceptions->map() replaces the throwable before shouldntReport() runs, so a lookup keyed
