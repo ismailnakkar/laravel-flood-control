@@ -68,8 +68,6 @@ final class PulseExceptionRecorder
      */
     private static function registered(): ?self
     {
-        return app(Pulse::class)->recorders()->first(
-            static fn (object $recorder): bool => $recorder instanceof self,
-        );
+        return app(Pulse::class)->recorders()->whereInstanceOf(self::class)->first();
     }
 }

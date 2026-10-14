@@ -160,7 +160,11 @@ class ExceptionThrottleTest extends TestCase
         $this->assertCount(4, $this->reported);
     }
 
-    /** Fresh instances: throwables are uncloneable, and a repeat report needs a distinct one. */
+    /**
+     * Fresh instances: throwables are uncloneable, and a repeat report needs a distinct one.
+     *
+     * @param  class-string<Throwable>  $class
+     */
     private function reportTimes(string $class, int $times): void
     {
         foreach (range(1, $times) as $i) {

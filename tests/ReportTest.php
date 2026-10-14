@@ -10,6 +10,7 @@ use FloodControl\Tests\Fixtures\MappedTo;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Context;
+use Illuminate\Support\Facades\Exceptions;
 use LogicException;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
@@ -170,7 +171,7 @@ class ReportTest extends TestCase
         // $exceptions->map() replaces the throwable before shouldntReport() runs, so a lookup keyed
         // on the instance the call site held would miss and silently fall back to the config limit.
         config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
-        app(ExceptionHandler::class)->map(
+        Exceptions::map(
             fn (MappedFrom $e): MappedTo => new MappedTo('mapped', 0, $e),
         );
         $this->captureReports();

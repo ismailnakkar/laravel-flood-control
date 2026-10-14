@@ -53,11 +53,11 @@ class LogThrottleTest extends TestCase
     {
         // Resolving Log::driver() here returned null under a bare spy, so every throttled line in a
         // suite blew up with a TypeError until the caller stubbed driver() by hand.
-        Log::spy();
+        $log = Log::spy();
 
         LogThrottle::once('spy-key', 60)->warning('recorded');
 
-        Log::shouldHaveReceived('warning')->with('recorded')->once();
+        $log->shouldHaveReceived('warning')->with('recorded')->once();
     }
 
     #[Test]

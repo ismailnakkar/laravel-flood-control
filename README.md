@@ -3,7 +3,7 @@
 Rate-limit reported exceptions and repeated log lines without going blind — Laravel Pulse still counts
 every one.
 
-Requires PHP 8.2, Laravel 12.1 or newer and Monolog 3. Laravel Pulse is optional (1.x).
+Requires PHP 8.2, Laravel 12.21 or newer and Monolog 3. Laravel Pulse is optional (1.x).
 
 ## Install
 
@@ -233,7 +233,7 @@ Note what that second key does: it drops the **whole record** when it carries an
 
 ```bash
 composer test     # phpunit
-composer check    # pint --test, then phpunit
+composer check    # pint --test, phpstan, then phpunit
 ```
 
 A bare `Log::spy()` is enough — the throttle resolves the log manager, not the driver behind it, so
@@ -247,7 +247,14 @@ LogThrottle::once('origin-denied', 60)->warning('Origin not allowed');
 Log::shouldHaveReceived('warning')->with('Origin not allowed')->once();
 ```
 
-## Upgrading to 2.0
+## Upgrading
+
+### From 2.1
+
+Laravel 12.21 is the floor: the provider calls `dontReportWhen()`, which Laravel 12 has only from
+12.21, so 2.1 already failed on 12.1 to 12.20. Nothing else changes.
+
+### From 1.x
 
 Config stays arrays, every option keeps its name, and both throttles behave as before. `Budget` is
 where "below 1 means no limit, not never" now lives. `ThrottleConfig` is `@internal`; its `for()`

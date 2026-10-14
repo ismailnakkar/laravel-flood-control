@@ -126,7 +126,7 @@ class FloodControlServiceProvider extends ServiceProvider
         return null;
     }
 
-    /** @return list<string> */
+    /** @return list<mixed> */
     private function counters(): array
     {
         return array_values((array)$this->app->make('config')->get('flood-control.counters', []));

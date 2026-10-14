@@ -1,0 +1,19 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 7
+    paths:
+        - src
+        - tests
+    ignoreErrors:
+        # unwrap() returns the handler with throttleUsing(): Laravel's, which has dontReportWhen() from 12.21.
+        -
+            identifier: method.notFound
+            message: '#^Call to an undefined method object::(dontReportWhen|throttleUsing)\(\)\.$#'
+            path: src/FloodControlServiceProvider.php
+        # once() promises a LoggerInterface; this test pins the withContext() both of its loggers also take.
+        -
+            identifier: method.notFound
+            message: '#LoggerInterface::withContext\(\)#'
+            path: tests/LogThrottleTest.php

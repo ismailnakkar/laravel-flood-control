@@ -119,15 +119,15 @@ class ConfigValidationTest extends TestCase
     #[Test]
     public function a_cached_config_skips_the_check(): void
     {
+        if (version_compare($this->app->version(), '12.38', '<')) {
+            $this->markTestSkipped('Application::configurationIsCached() reads this binding from Laravel 12.38.');
+        }
+
         // The cost lands on config:cache at deploy time, never on a production boot.
         $this->classes = ['App\\Nope' => ['limit' => 1]];
         $this->configIsCached = true;
 
         $this->refreshApplication();
-
-        if (! $this->app->configurationIsCached()) {
-            $this->markTestSkipped('Application::configurationIsCached() reads this binding from Laravel 12.38.');
-        }
 
         $this->assertTrue($this->app->isBooted());
     }

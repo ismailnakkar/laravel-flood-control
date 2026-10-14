@@ -33,7 +33,10 @@ class UngateableHandler implements ExceptionHandler
         return true;
     }
 
-    public function render($request, Throwable $e) {}
+    public function render($request, Throwable $e)
+    {
+        throw $e;
+    }
 
     public function renderForConsole($output, Throwable $e): void {}
 }

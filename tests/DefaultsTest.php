@@ -8,6 +8,7 @@ use FloodControl\Budget;
 use FloodControl\FloodControlServiceProvider;
 use FloodControl\ThrottleConfig;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
@@ -70,7 +71,7 @@ class DefaultsTest extends TestCase
     public function auto_discovery_points_at_a_provider_that_exists(): void
     {
         // Testbench registers the provider by hand, so nothing else exercises the install story.
-        $composer = json_decode(file_get_contents(__DIR__ . '/../composer.json'), true, flags: JSON_THROW_ON_ERROR);
+        $composer = File::json(__DIR__ . '/../composer.json', JSON_THROW_ON_ERROR);
 
         $this->assertSame(
             [FloodControlServiceProvider::class],
