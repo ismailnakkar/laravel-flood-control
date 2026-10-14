@@ -89,9 +89,9 @@ class FloodControlServiceProvider extends ServiceProvider
                 $handler->dontReportWhen(PulseExceptionRecorder::count(...));
             }
 
-            if ($this->counters() !== []) {
-                $handler->dontReportWhen($this->runCounters(...));
-            }
+            // Always, not only when counters are configured now: runCounters() reads the list per
+            // exception, so counters set after the handler resolved still run.
+            $handler->dontReportWhen($this->runCounters(...));
 
             $handler->throttleUsing(ExceptionThrottle::for(...));
         });

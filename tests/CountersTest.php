@@ -101,7 +101,7 @@ class CountersTest extends TestCase
     }
 
     #[Test]
-    public function no_counters_registers_nothing(): void
+    public function no_counters_count_nothing(): void
     {
         $this->counters = [];
         $this->refreshApplication();
@@ -110,6 +110,20 @@ class CountersTest extends TestCase
         report(new RuntimeException('boom'));
 
         $this->assertSame([], $this->counter->seen);
+        $this->assertCount(1, $this->reported);
+    }
+
+    #[Test]
+    public function counters_configured_after_the_handler_resolved_still_run(): void
+    {
+        $this->counters = [];
+        $this->refreshApplication();
+        $this->captureReports();
+
+        config(['flood-control.counters' => [RecordingCounter::class]]);
+        report(new RuntimeException('boom'));
+
+        $this->assertSame(['boom'], $this->counter->seen);
         $this->assertCount(1, $this->reported);
     }
 }
