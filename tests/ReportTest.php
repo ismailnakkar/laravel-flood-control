@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Exceptions;
 use LogicException;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\TestWith;
 use RuntimeException;
 use Throwable;
 
@@ -61,7 +62,7 @@ class ReportTest extends TestCase
         Report::exception(new RuntimeException('first'), limit: new Limit(maxAttempts: 1, decaySeconds: 300));
         Report::exception(new RuntimeException('second'), limit: new Limit(maxAttempts: 1, decaySeconds: 300));
 
-        // Same class, so the same bucket — the per-call limit shrank it from the configured 10.
+        // Same class, so the same override bucket — capped at 1, not the configured 10.
         $this->assertCount(1, $this->reported);
     }
 
@@ -196,6 +197,39 @@ class ReportTest extends TestCase
         Report::exception(new LogicException('different class, same bucket'), limit: Limit::perHour(1)->by('tenant:7'));
 
         $this->assertCount(1, $this->reported);
+    }
+
+    #[Test]
+    #[TestWith([''])]
+    #[TestWith(['0'])]
+    #[TestWith([null])]
+    public function an_overrides_window_does_not_govern_later_plain_reports(?string $key): void
+    {
+        // The rate limiter fixes a counter's lifetime on its first hit, so an hour-long override in
+        // the class bucket would hold that class's plain reports to its window too.
+        config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
+        $this->captureReports();
+
+        Report::exception(new RuntimeException('overridden'), limit: Limit::perHour(1)->by($key));
+        report(new RuntimeException('plain'));
+        $this->travel(301)->seconds();
+        report(new RuntimeException('plain, next configured window'));
+
+        $this->assertCount(3, $this->reported);
+    }
+
+    #[Test]
+    public function one_limit_reused_across_classes_does_not_keep_the_first_classs_bucket(): void
+    {
+        config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
+        $this->captureReports();
+
+        $limit = Limit::perHour(1);
+        Report::exception(new RuntimeException('first'), limit: $limit);
+        Report::exception(new LogicException('another class'), limit: $limit);
+
+        $this->assertCount(2, $this->reported);
+        $this->assertSame('', $limit->key, "the caller's Limit is not rekeyed");
     }
 
     #[Test]

@@ -10,7 +10,7 @@ parameters:
         # unwrap() returns the handler with throttleUsing(): Laravel's, which has dontReportWhen() from 12.21.
         -
             identifier: method.notFound
-            message: '#^Call to an undefined method object::(dontReportWhen|throttleUsing)\(\)\.$#'
+            message: '#^Call to an undefined method object::(dontReportWhen|reportable|throttleUsing)\(\)\.$#'
             path: src/FloodControlServiceProvider.php
         # once() promises a LoggerInterface; this test pins the withContext() both of its loggers also take.
         -

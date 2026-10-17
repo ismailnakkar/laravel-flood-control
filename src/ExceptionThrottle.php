@@ -39,14 +39,23 @@ final class ExceptionThrottle
     }
 
     /**
-     * Keyed by the throwable, so the override dies with the instance. The Limit is kept whole: one
-     * carrying `by()` replaces the per-class bucket.
+     * Keyed by the throwable, so the override dies with the instance. One carrying `by()` replaces
+     * the per-class bucket; one without gets a per-class override bucket of its own.
      */
     public static function override(Throwable $e, Limit $limit): void
     {
-        self::overrides()[$e] = Budget::of($limit->maxAttempts, $limit->decaySeconds)->isUnlimited()
-            ? Limit::none()
-            : $limit;
+        if (Budget::of($limit->maxAttempts, $limit->decaySeconds)->isUnlimited()) {
+            self::overrides()[$e] = Limit::none();
+
+            return;
+        }
+
+        // A key-less one would land in the class bucket, whose lifetime the first hit fixes — so its
+        // window would govern the class's plain reports. Cloned: by() mutates, and a caller may
+        // reuse one Limit across classes. Falsy, as the handler tests it.
+        self::overrides()[$e] = $limit->key
+            ? $limit
+            : (clone $limit)->by('flood-control:override:' . $e::class);
     }
 
     /** Drops an override report() never consumed. */

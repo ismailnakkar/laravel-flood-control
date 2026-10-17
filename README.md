@@ -59,9 +59,11 @@ Report::exception($e, limit: Limit::perMinute(5)->by("tenant:{$tenant->id}"));
 ```
 
 Context goes through `Context::scope()`, so it reaches the log record and the Sentry event and is
-restored afterwards. A per-call `limit` caps that one report without reserving the class bucket; it is
-spent when the report reaches the throttle, and it survives `$exceptions->map()`. `by()` replaces the
-bucket, which is how you throttle per tenant. With neither argument, use `report($e)`.
+restored afterwards. A per-call `limit` caps that one report without touching the class bucket:
+without `by()`, the overrides of one class share a bucket of their own, and its first hit sets the
+window for all of them. It is spent when the report reaches the throttle, and it survives
+`$exceptions->map()`. `by()` replaces the bucket, which is how you throttle per tenant. With neither
+argument, use `report($e)`.
 
 ### A message that needs an issue
 
@@ -165,8 +167,9 @@ a `reportable` therefore counts what survived the throttle, not what happened.
 **Pulse is handled for you.** The package binds Pulse's `Exceptions` recorder to one that counts in
 front of the gate instead of behind it. Recording is still Pulse's own recorder, so the card, your
 `ignore`, `sample_rate` and `location` settings, and `Pulse::report()` are unchanged. No Pulse config
-is written and Pulse's own off switches still win. `php artisan about` shows the swap, and
-`FLOOD_CONTROL_PULSE=false` turns it off. With `laravel/pulse` absent nothing is registered at all.
+is written and Pulse's own off switches still win. `php artisan about` shows which way it counts.
+`FLOOD_CONTROL_PULSE=false` counts survivors only, as Pulse alone would; it is read per exception.
+With `laravel/pulse` absent nothing is registered at all.
 
 **Your own counters go in config:**
 

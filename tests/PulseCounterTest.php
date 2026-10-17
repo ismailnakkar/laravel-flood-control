@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace FloodControl\Tests;
 
 use FloodControl\PulseExceptionRecorder;
+use FloodControl\PulseReportListener;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\View\ViewException;
 use Laravel\Pulse\Events\ExceptionReported;
@@ -76,8 +77,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function pulse_report_still_records_after_the_swap(): void
     {
-        // Pulse's recorder counts Pulse::report() from an event listener, not from the reportable
-        // this package drops.
+        // Pulse::report() never reaches the handler; this package's class listener records it.
         $counted = $this->pulseExceptions(
             fn () => event(new ExceptionReported(new RuntimeException('boom'))),
         );
@@ -124,5 +124,45 @@ class PulseCounterTest extends TestCase
         $this->assertStringContainsString('counts in front of the gate', $output);
         $this->assertStringContainsString('10 per 300s', $output);
         $this->assertStringContainsString('ENABLED', $output);
+    }
+
+    #[Test]
+    public function the_switch_is_read_per_exception(): void
+    {
+        // Set after boot, as a provider's boot() or a test would: the wiring cannot have seen it.
+        config(['flood-control.pulse' => false, 'flood-control.limit' => 1, 'flood-control.window' => 300]);
+        $this->captureReports();
+
+        $counted = $this->pulseExceptions(function (): void {
+            foreach (range(1, 4) as $i) {
+                report(new RuntimeException("boom {$i}"));
+            }
+        });
+
+        $this->assertCount(1, $this->reported);
+        $this->assertCount(1, $counted, 'switched off, only the survivor is counted, as Pulse alone would');
+    }
+
+    #[Test]
+    public function about_reads_the_switch_when_it_runs(): void
+    {
+        config(['flood-control.pulse' => false]);
+
+        $this->withoutMockingConsoleOutput();
+        $this->artisan('about --only=flood_control');
+
+        $output = $this->app[Kernel::class]->output();
+
+        $this->assertStringContainsString('Pulse counter', $output);
+        $this->assertStringNotContainsString('counts in front of the gate', $output);
+    }
+
+    #[Test]
+    public function pulse_report_is_counted_by_a_class_listener(): void
+    {
+        // A closure listener cannot be named: event:list shows only "Closure at: file:line", Event::assertListening() only Closure::class.
+        $listeners = $this->app['events']->getRawListeners()[ExceptionReported::class] ?? [];
+
+        $this->assertContains(PulseReportListener::class, $listeners);
     }
 }

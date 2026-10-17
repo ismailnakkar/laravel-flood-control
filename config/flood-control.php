@@ -14,8 +14,9 @@ return [
     /*
      * On (with laravel/pulse installed): counts every reported exception in front of the gate, so
      * the exceptions card keeps showing the real rate. Pulse counts from a `reportable`, which runs
-     * behind the gate; only that hook is replaced. Recording is still Pulse's own recorder, so its
-     * ignore, sample_rate and location settings apply as written. Off, Pulse counts survivors only.
+     * behind the gate; both its hooks (that reportable and the Pulse::report() listener) are
+     * replaced. Recording is still Pulse's own recorder, so its ignore, sample_rate and location
+     * settings apply as written. Off, Pulse counts survivors only. Read per exception.
      */
     'pulse' => env('FLOOD_CONTROL_PULSE', true),
 

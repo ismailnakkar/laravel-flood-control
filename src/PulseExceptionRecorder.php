@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace FloodControl;
 
-use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Contracts\Foundation\Application;
-use Laravel\Pulse\Events\ExceptionReported;
 use Laravel\Pulse\Pulse;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use Throwable;
@@ -19,8 +16,9 @@ use Throwable;
  * Pulse counts from a `reportable`, which runs only for what got past shouldntReport() — so
  * throttling would flatten the exceptions card by exactly the amount it suppressed.
  * FloodControlServiceProvider binds this in its place: recording is delegated to the stock recorder,
- * so the card, `ignore`, `sample_rate` and `location` are unchanged, but the reportable is dropped
- * and count() runs as a throttle callback instead.
+ * so the card, `ignore`, `sample_rate` and `location` are unchanged. It has no register(), so Pulse
+ * wires none of the stock hooks; the provider wires the ones below, and `flood-control.pulse` picks
+ * per exception which of count() and countSurvivor() records.
  */
 final class PulseExceptionRecorder
 {
@@ -29,6 +27,24 @@ final class PulseExceptionRecorder
     /** Registered on dontReportWhen(). Returns null, which is not `=== true`, so nothing is suppressed. */
     public static function count(Throwable $e): null
     {
+        if (self::countsInFront()) {
+            self::countAlways($e);
+        }
+
+        return null;
+    }
+
+    /** A reportable, behind the gate where Pulse counts, for while the switch is off. */
+    public static function countSurvivor(Throwable $e): void
+    {
+        if (! self::countsInFront()) {
+            self::countAlways($e);
+        }
+    }
+
+    /** Where the gate decides nothing: a handler with no throttleUsing(), and Pulse::report(). */
+    public static function countAlways(Throwable $e): void
+    {
         // dontReportCallbacks are not inside the handler's rescue(), so an escaping throw would take
         // down report() itself.
         try {
@@ -36,25 +52,11 @@ final class PulseExceptionRecorder
         } catch (Throwable) {
             //
         }
-
-        return null;
     }
 
-    /**
-     * Pulse's own recorder registers a `reportable` here too. count() replaces it; the
-     * Pulse::report() listener is kept as it is.
-     */
-    public function register(callable $record, Application $app): void
+    public static function countsInFront(): bool
     {
-        $listen = fn (Dispatcher $events) => $events->listen(
-            fn (ExceptionReported $event) => $record($event->exception),
-        );
-
-        $app->afterResolving(Dispatcher::class, $listen);
-
-        if ($app->resolved(Dispatcher::class)) {
-            $listen($app->make(Dispatcher::class));
-        }
+        return (bool)config('flood-control.pulse', true);
     }
 
     public function record(Throwable $e): void

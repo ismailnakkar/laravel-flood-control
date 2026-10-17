@@ -6,9 +6,11 @@ namespace FloodControl;
 
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
+use Laravel\Pulse\Events\ExceptionReported;
 use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use ReflectionObject;
 use Throwable;
@@ -17,7 +19,7 @@ use WeakMap;
 /** @internal */
 class FloodControlServiceProvider extends ServiceProvider
 {
-    private bool $countsWithPulse = false;
+    private bool $wrapsPulse = false;
 
     private bool $countersRunning = false;
 
@@ -33,13 +35,11 @@ class FloodControlServiceProvider extends ServiceProvider
         $this->app->singleton(ThrottleConfig::class);
 
         // Decided here because the binding has to land before Pulse boots and resolves its
-        // recorders. Registered after boot, Pulse already has the stock one, so leave it counting
-        // rather than counting survivors twice.
-        $this->countsWithPulse = class_exists(PulseExceptions::class)
-            && ! $this->app->isBooted()
-            && (bool)$this->app->make('config')->get('flood-control.pulse', true);
+        // recorders. Registered after boot, Pulse already has the stock one, so leave it counting.
+        // No config read: `flood-control.pulse` is read per exception, so a later value still counts.
+        $this->wrapsPulse = class_exists(PulseExceptions::class) && ! $this->app->isBooted();
 
-        if ($this->countsWithPulse) {
+        if ($this->wrapsPulse) {
             $this->app->bind(PulseExceptions::class, static function (Container $app): PulseExceptionRecorder {
                 // build(), not make(): this binding points that class back here.
                 return new PulseExceptionRecorder($app->build(PulseExceptions::class));
@@ -47,7 +47,7 @@ class FloodControlServiceProvider extends ServiceProvider
         }
     }
 
-    public function boot(): void
+    public function boot(Dispatcher $events): void
     {
         if ($this->app->runningInConsole()) {
             $this->publishes([
@@ -59,6 +59,10 @@ class FloodControlServiceProvider extends ServiceProvider
 
         $this->validateClassBudgets();
         $this->validateCounters();
+
+        if ($this->wrapsPulse) {
+            $events->listen(ExceptionReported::class, PulseReportListener::class);
+        }
 
         // Registered here, not via a bootstrap/app.php edit. An app's withExceptions() callbacks are
         // added during bootstrap, so they sit ahead of these and win.
@@ -85,8 +89,9 @@ class FloodControlServiceProvider extends ServiceProvider
             // callbacks ahead of the whole throttle chain, and Handler::throttle() stops at the
             // first non-null return — so an app throttle callback of its own would otherwise
             // starve the counters. Returning null is not `=== true`, so nothing is suppressed here.
-            if ($this->countsWithPulse) {
+            if ($this->wrapsPulse) {
                 $handler->dontReportWhen(PulseExceptionRecorder::count(...));
+                $handler->reportable(PulseExceptionRecorder::countSurvivor(...));
             }
 
             // Always, not only when counters are configured now: runCounters() reads the list per
@@ -177,8 +182,8 @@ class FloodControlServiceProvider extends ServiceProvider
      */
     private function countPulseFromAReportable(object $handler): void
     {
-        if ($this->countsWithPulse && method_exists($handler, 'reportable')) {
-            $handler->reportable(PulseExceptionRecorder::count(...));
+        if ($this->wrapsPulse && method_exists($handler, 'reportable')) {
+            $handler->reportable(PulseExceptionRecorder::countAlways(...));
         }
     }
 
@@ -264,7 +269,7 @@ class FloodControlServiceProvider extends ServiceProvider
             ),
             'Per class budgets' => (string)count((array)config('flood-control.classes', [])),
             'Enabled'           => AboutCommand::format($this->app->make(ThrottleConfig::class)->enabled(), console: fn ($v) => $v ? '<fg=yellow;options=bold>ENABLED</>' : 'OFF'),
-            'Pulse counter'     => AboutCommand::format($this->countsWithPulse, console: fn ($v) => $v ? '<fg=yellow;options=bold>ON</> (counts in front of the gate)' : 'OFF'),
+            'Pulse counter'     => AboutCommand::format($this->wrapsPulse && PulseExceptionRecorder::countsInFront(), console: fn ($v) => $v ? '<fg=yellow;options=bold>ON</> (counts in front of the gate)' : 'OFF'),
         ]);
     }
 }

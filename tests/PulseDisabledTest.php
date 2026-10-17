@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace FloodControl\Tests;
 
-use FloodControl\PulseExceptionRecorder;
-use Laravel\Pulse\Pulse as PulseInstance;
-use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
+use Laravel\Pulse\Events\ExceptionReported;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/** FLOOD_CONTROL_PULSE=false: Pulse behaves as if this package's counter did not exist. */
+/**
+ * FLOOD_CONTROL_PULSE=false: Pulse counts as if this package's counter did not exist. The swap stays
+ * wired either way, so the switch is read per exception.
+ */
 class PulseDisabledTest extends TestCase
 {
     protected function setUp(): void
@@ -31,12 +32,30 @@ class PulseDisabledTest extends TestCase
     }
 
     #[Test]
-    public function pulse_keeps_its_own_recorder(): void
+    public function pulse_report_is_still_counted(): void
     {
-        $recorders = app(PulseInstance::class)->recorders();
+        // The stock recorder's listener went with the swap, so this package's must stand in for it.
+        $counted = $this->pulseExceptions(
+            fn () => event(new ExceptionReported(new RuntimeException('boom'))),
+        );
 
-        $this->assertTrue($recorders->contains(fn (object $r): bool => $r instanceof PulseExceptions));
-        $this->assertFalse($recorders->contains(fn (object $r): bool => $r instanceof PulseExceptionRecorder));
+        $this->assertCount(1, $counted);
+    }
+
+    #[Test]
+    public function switching_it_on_after_boot_counts_in_front_of_the_gate(): void
+    {
+        config(['flood-control.pulse' => true, 'flood-control.limit' => 1, 'flood-control.window' => 300]);
+        $this->captureReports();
+
+        $counted = $this->pulseExceptions(function (): void {
+            foreach (range(1, 4) as $i) {
+                report(new RuntimeException("boom {$i}"));
+            }
+        });
+
+        $this->assertCount(1, $this->reported);
+        $this->assertCount(4, $counted);
     }
 
     #[Test]
