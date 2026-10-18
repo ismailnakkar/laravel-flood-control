@@ -46,6 +46,9 @@ php artisan vendor:publish --tag=flood-control-config   # to change them
 - A `Budget` works here too, if you prefer it to the array — `QueryException::class =>
   Budget::perHour(3)`. It survives `config:cache`. Arrays stay the default because the top-level
   `limit` and `window` are env-driven and read better that way.
+- The gate counts on the `cache.limiter` store and fails open like the log-line half: while that store
+  cannot be reached, every exception is reported. A budget on the store's own exception (`RedisException`
+  on a Redis store) caps a blip, not an outage.
 
 ### Per call
 
