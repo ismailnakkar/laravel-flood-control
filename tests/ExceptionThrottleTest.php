@@ -16,7 +16,6 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function it_registers_itself_without_a_bootstrap_edit(): void
     {
-        // The package's whole install story: require it, and the budget applies.
         config(['flood-control.limit' => 2, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -41,7 +40,6 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function each_exception_class_gets_its_own_budget(): void
     {
-        // One loud failure must not mask a different one.
         config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -151,7 +149,6 @@ class ExceptionThrottleTest extends TestCase
     #[Test]
     public function a_missing_budget_fails_open_rather_than_silencing_everything(): void
     {
-        // An empty env var reads as 0, and an unusable budget means no budget.
         config(['flood-control.limit' => 0, 'flood-control.window' => 0]);
         $this->captureReports();
 
@@ -160,11 +157,7 @@ class ExceptionThrottleTest extends TestCase
         $this->assertCount(4, $this->reported);
     }
 
-    /**
-     * Fresh instances: throwables are uncloneable, and a repeat report needs a distinct one.
-     *
-     * @param  class-string<Throwable>  $class
-     */
+    /** @param  class-string<Throwable>  $class */
     private function reportTimes(string $class, int $times): void
     {
         foreach (range(1, $times) as $i) {

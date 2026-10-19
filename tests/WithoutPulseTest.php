@@ -8,10 +8,7 @@ use Illuminate\Contracts\Console\Kernel;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/**
- * Runs only in the CI job that uninstalls laravel/pulse. Pulse is a suggestion, and an app that
- * does not want it must get a package that quietly does nothing about counting.
- */
+/** Runs only in the CI job that removes laravel/pulse. */
 class WithoutPulseTest extends TestCase
 {
     protected function setUp(): void

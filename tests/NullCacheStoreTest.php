@@ -11,10 +11,6 @@ use Monolog\Handler\NullHandler;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/**
- * NullStore has no add(), so Repository::add() returns false forever. Read as "already logged" that
- * suppresses every line, including the first.
- */
 class NullCacheStoreTest extends TestCase
 {
     /** @var list<string> */
@@ -50,8 +46,7 @@ class NullCacheStoreTest extends TestCase
     #[Test]
     public function the_exception_side_fails_open_too(): void
     {
-        // The two halves have to agree: the exception throttle's RateLimiter reads 0 attempts from a
-        // no-op store and lets everything through.
+        // The RateLimiter reads 0 attempts from a no-op store, so nothing is throttled.
         config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
         $this->captureReports();
 

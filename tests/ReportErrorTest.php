@@ -14,7 +14,6 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Throwable;
 
-/** `Report::error()`: a message that deserves an issue, bucketed per call site. */
 class ReportErrorTest extends TestCase
 {
     protected function defineEnvironment($app): void
@@ -23,7 +22,7 @@ class ReportErrorTest extends TestCase
         $app['config']->set('flood-control.window', 300);
     }
 
-    /** Two call sites, deliberately on their own lines — the line number is the bucket. */
+    /** Separate call sites: the file and line are the bucket. */
     private function fromFirstSite(): void
     {
         Report::error('first site');
@@ -78,8 +77,6 @@ class ReportErrorTest extends TestCase
     #[Test]
     public function separate_call_sites_do_not_spend_each_others_budget(): void
     {
-        // The whole point of keying on the call site: bucketing on OperationalError instead would
-        // let whichever site fires first silence every other one.
         $this->captureReports();
 
         foreach (range(1, 5) as $ignored) {
@@ -111,8 +108,6 @@ class ReportErrorTest extends TestCase
     #[Test]
     public function a_cause_does_not_move_the_bucket_off_the_call_site(): void
     {
-        // The chained throwable is evidence, not identity: two causes from one site still share
-        // a budget, or a varying cause would mint a bucket per occurrence.
         $this->captureReports();
 
         foreach (range(1, 4) as $i) {
@@ -130,7 +125,7 @@ class ReportErrorTest extends TestCase
     #[Test]
     public function an_explicit_budget_sets_this_lines_own_pace(): void
     {
-        // defineEnvironment puts the configured budget at 1 per 300s; this line wants 3.
+        // The configured budget is 1 per 300s.
         $this->captureReports();
 
         foreach (range(1, 6) as $ignored) {
@@ -143,7 +138,6 @@ class ReportErrorTest extends TestCase
     #[Test]
     public function an_explicit_budget_changes_the_pace_but_not_the_bucket(): void
     {
-        // Still keyed on the call site, or a slow line would be spent by a busy one elsewhere.
         $this->captureReports();
 
         foreach (range(1, 6) as $ignored) {

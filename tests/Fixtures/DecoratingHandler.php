@@ -7,10 +7,7 @@ namespace FloodControl\Tests\Fixtures;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Throwable;
 
-/**
- * Shaped like nunomaduro/collision's: implements the contract, wraps the real handler, and has no
- * throttleUsing() of its own.
- */
+/** Like Collision's handler: wraps the real one and has no throttleUsing(). */
 class DecoratingHandler implements ExceptionHandler
 {
     public function __construct(private ExceptionHandler $inner) {}

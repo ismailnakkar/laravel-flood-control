@@ -11,20 +11,19 @@ use WeakMap;
 /**
  * @internal
  *
- * The rate limit for reported exceptions. Registered as a throttle callback, so it gates inside
- * `shouldntReport()` — ahead of the log write and ahead of every `reportable` callback.
+ * The handler's throttle callback: it gates in shouldntReport(), ahead of the log write and every
+ * reportable.
  */
 final class ExceptionThrottle
 {
-    /** @var WeakMap<Throwable, Limit>|null Per-call overrides from Report::exception(). */
+    /** @var WeakMap<Throwable, Limit>|null */
     private static ?WeakMap $overrides = null;
 
-    /** @param Throwable $e Required: the handler matches callbacks on this parameter's type. */
+    /** The handler matches throttle callbacks on this parameter's type, so keep it Throwable. */
     public static function for(Throwable $e): Limit
     {
         $config = app(ThrottleConfig::class);
 
-        // Ahead of the override lookup: disabling beats a per-call limit.
         if (! $config->enabled()) {
             return Limit::none();
         }
@@ -38,10 +37,6 @@ final class ExceptionThrottle
         return $config->for($e)->toLimit();
     }
 
-    /**
-     * Keyed by the throwable, so the override dies with the instance. One carrying `by()` replaces
-     * the per-class bucket; one without gets a per-class override bucket of its own.
-     */
     public static function override(Throwable $e, Limit $limit): void
     {
         if (Budget::of($limit->maxAttempts, $limit->decaySeconds)->isUnlimited()) {
@@ -50,9 +45,8 @@ final class ExceptionThrottle
             return;
         }
 
-        // A key-less one would land in the class bucket, whose lifetime the first hit fixes — so its
-        // window would govern the class's plain reports. Cloned: by() mutates, and a caller may
-        // reuse one Limit across classes. Falsy, as the handler tests it.
+        // Key-less, it would share the class bucket, whose window the first hit fixes. Cloned: by()
+        // mutates, and the caller may reuse the Limit. A falsy key is none, as the handler reads it.
         self::overrides()[$e] = $limit->key
             ? $limit
             : (clone $limit)->by('flood-control:override:' . $e::class);
@@ -65,9 +59,8 @@ final class ExceptionThrottle
     }
 
     /**
-     * Consumed on read: an override caps the report it was set on, not every later report of the
-     * same instance. The `getPrevious()` walk covers `$exceptions->map()`, which replaces the
-     * throwable before `shouldntReport()` runs — the override may then sit on a previous.
+     * Consumed on read, so it caps one report. Walks getPrevious(): $exceptions->map() replaces the
+     * throwable before shouldntReport() runs.
      */
     private static function takeOverride(Throwable $e): ?Limit
     {

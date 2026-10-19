@@ -27,9 +27,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function every_exception_is_counted_even_when_the_report_is_throttled(): void
     {
-        // The whole reason the counter is a throttle callback and not a reportable: the gate runs
-        // first, so a counter behind it could only ever agree with the gate. Four, not five: the one
-        // survivor must not also be counted by a reportable.
+        // 4, not 5: the one survivor must not be counted again behind the gate.
         config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -54,8 +52,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function it_keys_a_view_exception_under_the_exception_the_view_threw(): void
     {
-        // Delegation earns this: keying on $e::class puts every Blade error on the card as
-        // ViewException at a compiled-view path, which names neither the fault nor the file.
+        // Pulse's own recorder keys a ViewException on the exception the view threw.
         $counted = $this->pulseExceptions(fn () => report(new ViewException(
             'Undefined variable (View: /app/resources/views/orders.blade.php)',
             0, 1, '/app/storage/framework/views/9f2.php', 12,
@@ -68,7 +65,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function it_honours_pulses_own_ignore_list(): void
     {
-        // The settings key on Pulse's class name, so only the stock recorder reads them right.
+        // Pulse keys these settings on its own recorder's class name.
         config(['pulse.recorders.' . PulseExceptions::class . '.ignore' => ['/^' . preg_quote(RuntimeException::class, '/') . '$/']]);
 
         $this->assertSame([], $this->pulseExceptions(fn () => report(new RuntimeException('boom'))));
@@ -77,7 +74,6 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function pulse_report_still_records_after_the_swap(): void
     {
-        // Pulse::report() never reaches the handler; this package's class listener records it.
         $counted = $this->pulseExceptions(
             fn () => event(new ExceptionReported(new RuntimeException('boom'))),
         );
@@ -88,8 +84,6 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function a_counter_failure_does_not_disable_the_gate(): void
     {
-        // The handler rescues a throwing throttle callback into "do not throttle", so an unguarded
-        // throw here would turn counting into a kill switch for the whole package.
         config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
         Pulse::partialMock()->shouldReceive('recorders')->andThrow(new RuntimeException('pulse is down'));
         $this->captureReports();
@@ -113,8 +107,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function the_recorder_swap_is_announced_by_artisan_about(): void
     {
-        // Against the real buffer: `about` renders through its own formatter, which the
-        // expectsOutputToContain() assertions do not see.
+        // `about` writes through its own formatter, which expectsOutputToContain() does not see.
         $this->withoutMockingConsoleOutput();
         $this->artisan('about --only=flood_control');
 
@@ -129,7 +122,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function the_switch_is_read_per_exception(): void
     {
-        // Set after boot, as a provider's boot() or a test would: the wiring cannot have seen it.
+        // Set after boot, so the wiring cannot have seen it.
         config(['flood-control.pulse' => false, 'flood-control.limit' => 1, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -160,7 +153,7 @@ class PulseCounterTest extends TestCase
     #[Test]
     public function pulse_report_is_counted_by_a_class_listener(): void
     {
-        // A closure listener cannot be named: event:list shows only "Closure at: file:line", Event::assertListening() only Closure::class.
+        // A closure listener shows in event:list only as "Closure at: file:line".
         $listeners = $this->app['events']->getRawListeners()[ExceptionReported::class] ?? [];
 
         $this->assertContains(PulseReportListener::class, $listeners);

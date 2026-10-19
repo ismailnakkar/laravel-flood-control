@@ -47,7 +47,7 @@ class ReportTest extends TestCase
         try {
             Report::exception(new RuntimeException('boom'), ['inner' => 'scoped']);
         } catch (RuntimeException) {
-            // The handler rethrows; what matters is what context looks like afterwards.
+            // The handler rethrows.
         }
 
         $this->assertSame(['outer' => 'kept'], Context::all());
@@ -62,7 +62,7 @@ class ReportTest extends TestCase
         Report::exception(new RuntimeException('first'), limit: new Limit(maxAttempts: 1, decaySeconds: 300));
         Report::exception(new RuntimeException('second'), limit: new Limit(maxAttempts: 1, decaySeconds: 300));
 
-        // Same class, so the same override bucket — capped at 1, not the configured 10.
+        // Same class, so the same override bucket.
         $this->assertCount(1, $this->reported);
     }
 
@@ -88,14 +88,12 @@ class ReportTest extends TestCase
         Report::exception(new RuntimeException('overridden'), limit: new Limit(maxAttempts: 1, decaySeconds: 300));
         report(new RuntimeException('plain'));
 
-        // Each call is judged against its own ceiling, so an override does not reserve the bucket.
         $this->assertCount(2, $this->reported);
     }
 
     #[Test]
     public function a_non_positive_per_call_limit_means_no_limit(): void
     {
-        // Same rule as the config path: a 0 from an empty value must not silence a class.
         config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -109,7 +107,7 @@ class ReportTest extends TestCase
     #[Test]
     public function a_per_call_window_is_used_instead_of_the_configured_one(): void
     {
-        // The configured window is unusable, so only the per-call one can produce a real budget.
+        // A zero configured window means no limit, so only the per-call window can throttle.
         config(['flood-control.limit' => 10, 'flood-control.window' => 0]);
         $this->captureReports();
 
@@ -123,7 +121,6 @@ class ReportTest extends TestCase
     #[Test]
     public function the_kill_switch_beats_a_per_call_override(): void
     {
-        // The switch is flipped mid-incident to see everything.
         config(['flood-control.enabled' => false]);
         $this->captureReports();
 
@@ -137,7 +134,6 @@ class ReportTest extends TestCase
     #[Test]
     public function an_override_is_spent_by_the_report_it_was_set_on(): void
     {
-        // Otherwise it lingers on the instance, and re-reporting a caught exception is ordinary.
         config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -151,7 +147,7 @@ class ReportTest extends TestCase
     #[Test]
     public function an_override_the_gate_never_reached_does_not_linger(): void
     {
-        // report() returns before the throttle when the switch is off, so nothing else would spend it.
+        // Disabled, the gate returns before taking the override.
         config(['flood-control.enabled' => false, 'flood-control.limit' => 1, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -169,8 +165,6 @@ class ReportTest extends TestCase
     #[Test]
     public function an_override_survives_exception_mapping(): void
     {
-        // $exceptions->map() replaces the throwable before shouldntReport() runs, so a lookup keyed
-        // on the instance the call site held would miss and silently fall back to the config limit.
         config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
         Exceptions::map(
             fn (MappedFrom $e): MappedTo => new MappedTo('mapped', 0, $e),
@@ -188,8 +182,6 @@ class ReportTest extends TestCase
     #[Test]
     public function a_limit_with_a_key_picks_its_own_bucket(): void
     {
-        // Limit::by() is the only way to throttle across classes or per tenant, and rebuilding the
-        // Limit from maxAttempts/decaySeconds alone would drop it back to the per-class bucket.
         config(['flood-control.limit' => 10, 'flood-control.window' => 300]);
         $this->captureReports();
 
@@ -205,8 +197,6 @@ class ReportTest extends TestCase
     #[TestWith([null])]
     public function an_overrides_window_does_not_govern_later_plain_reports(?string $key): void
     {
-        // The rate limiter fixes a counter's lifetime on its first hit, so an hour-long override in
-        // the class bucket would hold that class's plain reports to its window too.
         config(['flood-control.limit' => 1, 'flood-control.window' => 300]);
         $this->captureReports();
 

@@ -9,7 +9,6 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Cache\RateLimiting\Unlimited;
 use PHPUnit\Framework\Attributes\Test;
 
-/** The one place the "below 1 means no limit" rule lives. */
 class BudgetTest extends TestCase
 {
     #[Test]
@@ -23,7 +22,6 @@ class BudgetTest extends TestCase
     #[Test]
     public function a_sub_one_side_means_no_limit_rather_than_never(): void
     {
-        // An empty env var reads as 0, and silence is the worse failure.
         $this->assertTrue(Budget::of(0, 300)->isUnlimited());
         $this->assertTrue(Budget::of(10, 0)->isUnlimited());
         $this->assertTrue(Budget::of(-1, -1)->isUnlimited());
@@ -47,7 +45,6 @@ class BudgetTest extends TestCase
         $this->assertSame(3, $keyed->maxAttempts);
         $this->assertSame(600, $keyed->decaySeconds);
 
-        // Empty key: the handler falls back to one bucket per exception class.
         $this->assertSame('', Budget::of(3, 600)->toLimit()->key);
         $this->assertInstanceOf(Limit::class, Budget::of(3, 600)->toLimit());
     }
@@ -55,9 +52,7 @@ class BudgetTest extends TestCase
     #[Test]
     public function it_survives_the_round_trip_config_cache_performs(): void
     {
-        // Not a unit test of __set_state: config:cache var_export()s the whole array to a file and
-        // require()s it back, and it is the require that fatals when the method is missing — after
-        // the deploy step has already gone green.
+        // As config:cache does: var_export() to a file, then require() it.
         $exported = var_export(['classes' => ['App\\Foo' => Budget::perHour(7)]], true);
 
         $file = tempnam(sys_get_temp_dir(), 'fc') . '.php';

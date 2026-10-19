@@ -15,22 +15,16 @@ use Throwable;
 use UnitEnum;
 
 /**
- * One log line per key per window, for narration that is not an exception.
- *
- * A log line has no class to key on, so the key is yours to pick. Keep it a literal or a code-owned
- * value: a key built from a request header is unbounded cache cardinality.
+ * Throttled log lines. Keep keys code-owned: a key built from request data is unbounded cache
+ * cardinality.
  */
 final class LogThrottle
 {
     /**
-     * The real logger once per $seconds for $key, a discarding one after. A null or sub-1 window
-     * never throttles.
+     * The real logger once per $seconds for $key, a discarding one after; a null or sub-1 window
+     * never throttles. Exactly once, even across workers: the gate is one Cache::add().
      *
-     * Exactly one, not about one: the gate is a single Cache::add(), so workers cannot race it.
-     * Prefer this to times() unless you actually want several samples.
-     *
-     * $channel takes a channel or stack name, an array of channel names for an on-demand stack, an
-     * enum, a logger you already hold, or null for the default channel.
+     * $channel: an array is an on-demand stack; null is the default channel.
      *
      * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel
      */
@@ -49,23 +43,22 @@ final class LogThrottle
         try {
             $cache = app('cache')->store(config('cache.limiter'));
 
-            // NullStore has no add(), so Repository::add() always returns false. Fail open.
+            // Repository::add() is always false on a NullStore, which would discard every line.
             if ($cache->getStore() instanceof NullStore) {
                 return $logger;
             }
 
             return $cache->add(self::cacheKey($key), true, $budget->seconds) ? $logger : self::discard();
         } catch (Throwable) {
-            // Never throw into the caller: a cache outage is exactly when this line matters.
+            // Fail open: an outage is when this line matters most.
             return $logger;
         }
     }
 
     /**
-     * The real logger for the first $budget->times calls in each window, a discarding one after.
-     *
-     * About N, not exactly N: this reads a counter and then increments it, so two workers can both
-     * see N-1 — the same trade the exception gate already makes. once() is atomic; prefer it.
+     * The real logger for the first $budget->times calls per window, a discarding one after. About
+     * N: workers racing the counter can let an extra one through, so prefer once() unless you want
+     * several samples.
      *
      * @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel
      */
@@ -88,7 +81,6 @@ final class LogThrottle
                 $budget->seconds,
             ) ? $logger : self::discard();
         } catch (Throwable) {
-            // Never throw into the caller: a cache outage is exactly when this line matters.
             return $logger;
         }
     }
@@ -102,9 +94,7 @@ final class LogThrottle
         }
 
         return match (true) {
-            // The manager, not Log::driver() behind it: the driver call is what a bare Log::spy()
-            // stubs to null, turning every throttled line in a test suite into a TypeError.
-            // LogManager forwards every level, and withContext()/listen() through __call.
+            // The manager, not Log::driver(): a bare Log::spy() stubs driver() to return null.
             $channel === null                   => app('log'),
             $channel instanceof LoggerInterface => $channel,
             is_array($channel)                  => Log::stack($channel),
@@ -113,9 +103,8 @@ final class LogThrottle
     }
 
     /**
-     * A Logger, not a NullLogger, so a suppressed line accepts everything the real one does —
-     * withContext(), array messages, every PSR level. No handlers and no dispatcher, so it writes
-     * nothing and fires no MessageLogged.
+     * A Logger, not a NullLogger, so withContext() and array messages still work. With no handlers
+     * or dispatcher it writes nothing and fires no MessageLogged.
      */
     private static function discard(): LoggerInterface
     {
@@ -124,8 +113,7 @@ final class LogThrottle
 
     private static function cacheKey(string $key): string
     {
-        // Hashed like the exception throttle's: a raw key can exceed what memcached accepts, and a
-        // rejected write reads as "already logged".
+        // Hashed: memcached rejects long keys, and a rejected add() reads as already logged.
         return 'log-throttle:' . hash('xxh128', $key);
     }
 }

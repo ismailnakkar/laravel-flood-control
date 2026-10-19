@@ -11,11 +11,7 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Throwable;
 
-/**
- * An app's own throttle callbacks are registered during bootstrap, so they sit ahead of this
- * package's. Handler::throttle() stops at the first non-null return — which must not be able to
- * starve the counters.
- */
+/** App throttle callbacks run first, and Handler::throttle() stops at the first non-null return. */
 class CallbackOrderTest extends TestCase
 {
     /** @var list<class-string> */
@@ -63,8 +59,6 @@ class CallbackOrderTest extends TestCase
     #[Test]
     public function an_app_that_overrides_the_gate_does_not_starve_the_counters(): void
     {
-        // Returning a Limit is how the README says to override the package outright. It ends the
-        // throttle chain, so counting cannot live there.
         $this->appLimit = Limit::perMinute(3);
         $this->refreshApplication();
         $this->captureReports();
@@ -80,8 +74,6 @@ class CallbackOrderTest extends TestCase
     #[Test]
     public function pulse_is_not_starved_either(): void
     {
-        // Dropping Pulse's reportable leaves this package as the only counting hook, so starving it
-        // takes the card below what stock Pulse would have shown.
         $this->skipWithoutPulse();
 
         $this->appLimit = Limit::perMinute(3);

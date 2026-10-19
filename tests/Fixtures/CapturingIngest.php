@@ -9,7 +9,7 @@ use Laravel\Pulse\Contracts\Ingest;
 use Laravel\Pulse\Contracts\Storage;
 use Laravel\Pulse\Entry;
 
-/** Pulse's write seam, so a test can count what really reached it without a database. */
+/** Collects what Pulse ingests, with no database. */
 class CapturingIngest implements Ingest
 {
     /** @var list<Entry> */

@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\File;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/** Touches no config: an app that never published one must still get the shipped budget. */
+/** Sets no config, like an app that never published it. */
 class DefaultsTest extends TestCase
 {
     #[Test]
@@ -39,8 +39,7 @@ class DefaultsTest extends TestCase
     #[Test]
     public function an_absent_config_key_falls_back_to_the_shipped_budget(): void
     {
-        // A config cache written before the package was installed makes mergeConfigFrom() a no-op,
-        // and a fallback of 0 would read as "no limit" — the package silently off.
+        // A config cache from before install skips mergeConfigFrom(), so every key is absent.
         config(['flood-control' => null]);
 
         $this->assertEquals(
@@ -48,14 +47,12 @@ class DefaultsTest extends TestCase
             app(ThrottleConfig::class)->for(new RuntimeException('boom')),
         );
 
-        // The other half of the same fallback: a default of false would be the package off, silently.
         $this->assertTrue(app(ThrottleConfig::class)->enabled());
     }
 
     #[Test]
     public function artisan_about_reports_the_budget_that_is_actually_in_force(): void
     {
-        // Reading the raw keys here would print `OFF` and `0 per 0s` while the gate throttles at 10.
         config(['flood-control' => null]);
 
         $this->withoutMockingConsoleOutput();
@@ -70,7 +67,7 @@ class DefaultsTest extends TestCase
     #[Test]
     public function auto_discovery_points_at_a_provider_that_exists(): void
     {
-        // Testbench registers the provider by hand, so nothing else exercises the install story.
+        // Testbench registers the provider by hand, so discovery is checked here.
         $composer = File::json(__DIR__ . '/../composer.json', JSON_THROW_ON_ERROR);
 
         $this->assertSame(

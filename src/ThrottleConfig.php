@@ -46,8 +46,7 @@ final readonly class ThrottleConfig
     }
 
     /**
-     * Config order is not specificity order: return the match no other match is a subtype of.
-     * Unrelated entries tie-break on config order — catch-all last.
+     * The match no other match is a subtype of; unrelated matches tie-break on config order.
      *
      * @param  list<array-key>  $candidates
      */

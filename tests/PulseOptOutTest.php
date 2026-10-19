@@ -8,10 +8,7 @@ use Laravel\Pulse\Recorders\Exceptions as PulseExceptions;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/**
- * Pulse's own off switches. The counter goes through Pulse's registered recorders, so a recorder
- * Pulse did not register counts nothing — no config of Pulse's is read, or written.
- */
+/** Pulse's own off switches still stop the counter. */
 class PulseOptOutTest extends TestCase
 {
     /** @var array<string, mixed> */

@@ -9,8 +9,8 @@ use Laravel\Pulse\Events\ExceptionReported;
 /**
  * @internal
  *
- * Pulse::report() reaches the recorder through this event, never the handler, so the gate has no say:
- * the stock recorder's listener, which went with the swap.
+ * Stands in for the stock recorder's listener: Pulse::report() reaches the recorder through this
+ * event, never the handler.
  */
 final class PulseReportListener
 {

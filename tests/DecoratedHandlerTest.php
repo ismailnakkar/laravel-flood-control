@@ -10,10 +10,6 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/**
- * throttleUsing() is not on the ExceptionHandler contract, so a decorator hides it. Collision wraps
- * the binding on every console run, which is where floods actually happen — queue:work.
- */
 class DecoratedHandlerTest extends TestCase
 {
     private RecordingCounter $counter;
@@ -26,7 +22,7 @@ class DecoratedHandlerTest extends TestCase
 
         $app->instance(RecordingCounter::class, $this->counter = new RecordingCounter);
 
-        // Exactly what CollisionServiceProvider::register() does.
+        // As CollisionServiceProvider::register() does.
         $real = $app->make(ExceptionHandler::class);
         $app->singleton(ExceptionHandler::class, fn (): ExceptionHandler => new DecoratingHandler($real));
     }
@@ -46,8 +42,6 @@ class DecoratedHandlerTest extends TestCase
     #[Test]
     public function a_handler_reached_twice_is_wired_once(): void
     {
-        // The decorator and the bare handler both reach the provider and unwrap to the same
-        // object, so a second wiring would count every exception twice.
         $this->captureReports();
 
         foreach (range(1, 3) as $i) {

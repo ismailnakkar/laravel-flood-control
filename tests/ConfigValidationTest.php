@@ -12,10 +12,6 @@ use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 use Throwable;
 
-/**
- * A scalar config type-checks nothing, so a typo'd class or key would silently fall back to the
- * default budget — a throttle you configured and never got.
- */
 class ConfigValidationTest extends TestCase
 {
     private mixed $classes = [];
@@ -53,8 +49,7 @@ class ConfigValidationTest extends TestCase
     #[Test]
     public function a_budget_object_in_classes_is_used_rather_than_silently_ignored(): void
     {
-        // (array) on a Budget yields times/seconds, not limit/window, so a naive read falls back to
-        // the default budget and throttles at the wrong rate with nothing to show for it.
+        // (array) on a Budget yields times/seconds, which a limit/window read would ignore.
         $this->classes = [RuntimeException::class => Budget::perHour(7)];
         $this->refreshApplication();
 
@@ -83,7 +78,6 @@ class ConfigValidationTest extends TestCase
     #[Test]
     public function a_window_only_entry_is_a_valid_shorthand(): void
     {
-        // The limit falls back to the default, the way the window already does.
         $this->classes = [RuntimeException::class => ['window' => 3600]];
 
         $this->refreshApplication();
@@ -123,7 +117,6 @@ class ConfigValidationTest extends TestCase
             $this->markTestSkipped('Application::configurationIsCached() reads this binding from Laravel 12.38.');
         }
 
-        // The cost lands on config:cache at deploy time, never on a production boot.
         $this->classes = ['App\\Nope' => ['limit' => 1]];
         $this->configIsCached = true;
 

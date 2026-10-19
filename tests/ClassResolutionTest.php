@@ -19,9 +19,8 @@ class ClassResolutionTest extends TestCase
     #[Test]
     public function an_interface_entry_is_matched_regardless_of_linkage_order(): void
     {
-        // class_implements(MarkedException) returns Throwable and Stringable BEFORE NarrowMarker,
-        // so anything that trusts array order gives the catch-all entry the win no matter how the
-        // config is written. NarrowMarker and Throwable are unrelated, so declaration order decides.
+        // class_implements() lists Throwable before NarrowMarker, so only config order may decide
+        // between these unrelated entries.
         config([
             'flood-control.window'  => 300,
             'flood-control.classes' => [
@@ -73,8 +72,6 @@ class ClassResolutionTest extends TestCase
     #[Test]
     public function a_catch_all_written_first_swallows_a_narrower_entry(): void
     {
-        // The trap the config comment and the README both warn about: Throwable and NarrowMarker
-        // have no subtype relation, so the one written first wins.
         config([
             'flood-control.window'  => 300,
             'flood-control.classes' => [
@@ -92,7 +89,7 @@ class ClassResolutionTest extends TestCase
     #[Test]
     public function a_narrow_interface_beats_the_broad_one_it_extends(): void
     {
-        // Written broad-first, and the narrow entry still wins: only subtype order decides here.
+        // Written broad-first on purpose.
         config([
             'flood-control.window'  => 300,
             'flood-control.classes' => [
@@ -110,7 +107,7 @@ class ClassResolutionTest extends TestCase
     #[Test]
     public function a_per_class_window_overrides_the_default_window(): void
     {
-        // Default window is unusable, so only a per-class window can produce a working budget.
+        // A zero default window means no limit, so only the per-class window can throttle.
         config([
             'flood-control.limit'   => 10,
             'flood-control.window'  => 0,
@@ -145,11 +142,7 @@ class ClassResolutionTest extends TestCase
         $this->assertCount(4, $this->reported);
     }
 
-    /**
-     * Fresh instances: throwables are uncloneable, and a repeat report needs a distinct one.
-     *
-     * @param  class-string<Throwable>  $class
-     */
+    /** @param  class-string<Throwable>  $class */
     private function reportTimes(string $class, int $times): void
     {
         foreach (range(1, $times) as $i) {

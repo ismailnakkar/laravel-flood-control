@@ -16,12 +16,12 @@ use Throwable;
 
 abstract class TestCase extends Orchestra
 {
-    /** @var list<Throwable> every exception that survived the throttle */
+    /** @var list<Throwable> */
     protected array $reported = [];
 
     protected function getPackageProviders($app): array
     {
-        // Pulse is a suggestion, not a requirement. The suite runs both ways — see the CI matrix.
+        // CI also runs the suite without laravel/pulse.
         return array_values(array_filter([
             self::hasPulse() ? PulseServiceProvider::class : null,
             FloodControlServiceProvider::class,
@@ -40,10 +40,7 @@ abstract class TestCase extends Orchestra
         }
     }
 
-    /**
-     * Reportable callbacks run only for exceptions that got past shouldntReport(), so this is the
-     * throttle's decision made observable. Returning false stops the handler's own log write.
-     */
+    /** Records what passed the gate; returning false skips the handler's log write. */
     protected function captureReports(): void
     {
         $this->reported = [];
@@ -56,9 +53,9 @@ abstract class TestCase extends Orchestra
     }
 
     /**
-     * Runs $work and flushes Pulse through a capturing ingest: its real path, with no database.
+     * Runs $work and flushes Pulse into a capturing ingest, with no database.
      *
-     * @return list<string> the key of every `exception` entry that reached Pulse
+     * @return list<string> keys of the `exception` entries Pulse recorded
      */
     protected function pulseExceptions(callable $work): array
     {

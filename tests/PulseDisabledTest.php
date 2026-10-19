@@ -8,15 +8,11 @@ use Laravel\Pulse\Events\ExceptionReported;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/**
- * FLOOD_CONTROL_PULSE=false: Pulse counts as if this package's counter did not exist. The swap stays
- * wired either way, so the switch is read per exception.
- */
 class PulseDisabledTest extends TestCase
 {
     protected function setUp(): void
     {
-        // Via the env, so the documented FLOOD_CONTROL_PULSE key stays wired to config/flood-control.php.
+        // Through the env, so the FLOOD_CONTROL_PULSE wiring in the config file is covered too.
         putenv('FLOOD_CONTROL_PULSE=false');
 
         parent::setUp();
@@ -34,7 +30,6 @@ class PulseDisabledTest extends TestCase
     #[Test]
     public function pulse_report_is_still_counted(): void
     {
-        // The stock recorder's listener went with the swap, so this package's must stand in for it.
         $counted = $this->pulseExceptions(
             fn () => event(new ExceptionReported(new RuntimeException('boom'))),
         );

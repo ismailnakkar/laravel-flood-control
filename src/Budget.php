@@ -7,16 +7,13 @@ namespace FloodControl;
 use Illuminate\Cache\RateLimiting\Limit;
 
 /**
- * How many times per how many seconds — the package's one unit of allowance.
- *
- * Config stays arrays, because `config:cache` writes it with var_export(). This is what those
- * arrays become on the way in, so the "below 1 means no limit" rule lives here and nowhere else.
+ * $times per $seconds. Below 1 on either side means no limit, not never: an empty env var reads as 0.
+ * The only home of this rule; other code asks isUnlimited().
  */
 final readonly class Budget
 {
     private function __construct(public int $times, public int $seconds) {}
 
-    /** Below 1 either way is "no limit", not "never": an empty env var reads as 0. */
     public static function of(int $times, int $seconds): self
     {
         return new self($times, $seconds);
@@ -42,11 +39,7 @@ final readonly class Budget
         return new self(0, 0);
     }
 
-    /**
-     * Reads one `flood-control.classes` entry, falling back to the defaults for absent keys.
-     *
-     * @param  array<string, mixed>  $entry
-     */
+    /** @param  array<string, mixed>  $entry  A `classes` entry; absent keys fall back to $default. */
     public static function fromConfig(array $entry, self $default): self
     {
         return new self(
@@ -56,9 +49,7 @@ final readonly class Budget
     }
 
     /**
-     * Arrays are the documented config form, but `Budget::perHour(1)` is the obvious thing to reach
-     * for. var_export() writes an object happily and only the require() fails, so without this a
-     * `config:cache` deploy goes green and then fatals on every request.
+     * Lets a Budget in config survive `config:cache`, which var_export()s it.
      *
      * @param  array{times: int, seconds: int}  $state
      */
@@ -72,7 +63,7 @@ final readonly class Budget
         return $this->times < 1 || $this->seconds < 1;
     }
 
-    /** @param string|null $key The bucket. Null leaves it to the caller's default — for the exception handler, the concrete class. */
+    /** @param  string|null  $key  The bucket; null leaves it to the handler, one per concrete class. */
     public function toLimit(?string $key = null): Limit
     {
         return $this->isUnlimited()

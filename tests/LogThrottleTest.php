@@ -18,7 +18,7 @@ use RuntimeException;
 
 class LogThrottleTest extends TestCase
 {
-    /** @var list<string> every line that reached a handler, as "{level}|{message}" */
+    /** @var list<string> "{level}|{message}" of each line written */
     private array $written = [];
 
     protected function defineEnvironment($app): void
@@ -51,8 +51,6 @@ class LogThrottleTest extends TestCase
     #[Test]
     public function a_bare_log_spy_is_enough_to_assert_on(): void
     {
-        // Resolving Log::driver() here returned null under a bare spy, so every throttled line in a
-        // suite blew up with a TypeError until the caller stubbed driver() by hand.
         $log = Log::spy();
 
         LogThrottle::once('spy-key', 60)->warning('recorded');
@@ -93,8 +91,7 @@ class LogThrottleTest extends TestCase
     #[Test]
     public function the_gate_lives_in_the_cache_not_in_an_instance(): void
     {
-        // A per-worker gate would satisfy every "logged once" assertion while each worker still
-        // emitted the line.
+        // A per-process gate would pass the other tests and still log once per worker.
         LogThrottle::once('shared', 60);
 
         $store = $this->app->make(CacheManager::class)->store(config('cache.limiter'));
@@ -133,7 +130,6 @@ class LogThrottleTest extends TestCase
     #[Test]
     public function a_window_below_one_never_throttles(): void
     {
-        // Same rule as the exception side: a 0 from an empty config value must not silence a line.
         LogThrottle::once('zero', 0)->info('one');
         LogThrottle::once('zero', 0)->info('two');
 
@@ -143,7 +139,6 @@ class LogThrottleTest extends TestCase
     #[Test]
     public function a_cache_failure_logs_rather_than_throwing(): void
     {
-        // Logging must never break its caller, and an outage is when the line is worth most.
         $this->app->bind('cache', function (): CacheManager {
             $cache = $this->createStub(CacheManager::class);
             $cache->method('store')->willThrowException(new RuntimeException('redis is down'));
@@ -176,8 +171,6 @@ class LogThrottleTest extends TestCase
     #[Test]
     public function a_suppressed_line_fires_no_log_event(): void
     {
-        // A NullLogger would be silent too, but Telescope, Log::listen() and Sentry breadcrumbs all
-        // hang off MessageLogged — a throttle that still fires it throttles nothing that matters.
         LogThrottle::once('quiet', 60)->error('first');
         LogThrottle::once('quiet', 60)->error('second');
 
@@ -187,8 +180,6 @@ class LogThrottleTest extends TestCase
     #[Test]
     public function a_suppressed_logger_accepts_everything_the_real_one_does(): void
     {
-        // The throttled return value has to be a drop-in, or every call site that chains fatals on
-        // its second pass through the window.
         LogThrottle::once('chained', 60)->withContext(['a' => 1])->warning(['array' => 'message']);
         LogThrottle::once('chained', 60)->withContext(['a' => 1])->warning(['array' => 'message']);
 
@@ -208,7 +199,6 @@ class LogThrottleTest extends TestCase
     #[Test]
     public function it_can_throttle_an_enum_channel(): void
     {
-        // Log::driver() only resolves enums itself from Laravel 13.3; before that it trims them.
         $this->assertSame(Log::channel('audit'), LogThrottle::once('enumerated', 60, Channel::Audit));
     }
 

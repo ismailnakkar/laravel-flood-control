@@ -7,10 +7,7 @@ namespace FloodControl\Tests\Fixtures;
 use RuntimeException;
 use Throwable;
 
-/**
- * A counter that reports. Counters run in front of the gate, so without a re-entrancy guard the
- * gate can never stop the nesting — rescue() reporting a failed metric write is enough to trigger it.
- */
+/** A counter that reports, as rescue() around a failed metric write would. */
 class ReportingCounter
 {
     public int $calls = 0;

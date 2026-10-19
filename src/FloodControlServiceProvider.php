@@ -23,7 +23,7 @@ class FloodControlServiceProvider extends ServiceProvider
 
     private bool $countersRunning = false;
 
-    /** @var WeakMap<object, true> Handlers already wired. */
+    /** @var WeakMap<object, true> */
     private WeakMap $wired;
 
     public function register(): void
@@ -34,14 +34,13 @@ class FloodControlServiceProvider extends ServiceProvider
 
         $this->app->singleton(ThrottleConfig::class);
 
-        // Decided here because the binding has to land before Pulse boots and resolves its
-        // recorders. Registered after boot, Pulse already has the stock one, so leave it counting.
-        // No config read: `flood-control.pulse` is read per exception, so a later value still counts.
+        // The binding must land before Pulse boots and resolves its recorders; registered later,
+        // Pulse keeps its stock one. No config check: `flood-control.pulse` is read per exception.
         $this->wrapsPulse = class_exists(PulseExceptions::class) && ! $this->app->isBooted();
 
         if ($this->wrapsPulse) {
             $this->app->bind(PulseExceptions::class, static function (Container $app): PulseExceptionRecorder {
-                // build(), not make(): this binding points that class back here.
+                // build(), not make(): make() would resolve this binding again.
                 return new PulseExceptionRecorder($app->build(PulseExceptions::class));
             });
         }
@@ -64,15 +63,12 @@ class FloodControlServiceProvider extends ServiceProvider
             $events->listen(ExceptionReported::class, PulseReportListener::class);
         }
 
-        // Registered here, not via a bootstrap/app.php edit. An app's withExceptions() callbacks are
-        // added during bootstrap, so they sit ahead of these and win.
+        // An app's withExceptions() callbacks are added during bootstrap, so they run ahead of these.
         $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $resolved): void {
             $handler = self::unwrap($resolved);
             $target = $handler ?? $resolved;
 
-            // Once per handler, not once per resolve: callAfterResolving() also fires for an
-            // already-resolved instance, so a decorated binding unwraps to this same object twice.
-            // dontReportWhen() appends, so a second pass counts every exception again.
+            // A decorated binding unwraps to the same handler; wiring it twice counts everything twice.
             if (isset($this->wired[$target])) {
                 return;
             }
@@ -85,30 +81,24 @@ class FloodControlServiceProvider extends ServiceProvider
                 return;
             }
 
-            // Counting hangs off dontReportWhen, not throttleUsing: shouldntReport() runs those
-            // callbacks ahead of the whole throttle chain, and Handler::throttle() stops at the
-            // first non-null return — so an app throttle callback of its own would otherwise
-            // starve the counters. Returning null is not `=== true`, so nothing is suppressed here.
+            // Counted on dontReportWhen(), ahead of the throttle chain: Handler::throttle() stops at
+            // the first non-null return, so an app's own throttle callback would starve counters
+            // there. These return null, which suppresses nothing.
             if ($this->wrapsPulse) {
                 $handler->dontReportWhen(PulseExceptionRecorder::count(...));
                 $handler->reportable(PulseExceptionRecorder::countSurvivor(...));
             }
 
-            // Always, not only when counters are configured now: runCounters() reads the list per
-            // exception, so counters set after the handler resolved still run.
+            // Always: the list is read per exception, so counters configured later still run.
             $handler->dontReportWhen($this->runCounters(...));
 
             $handler->throttleUsing(ExceptionThrottle::for(...));
         });
     }
 
-    /**
-     * Every configured counter, ahead of the gate. Returns null, so ExceptionThrottle still decides.
-     */
     private function runCounters(Throwable $e): null
     {
-        // Counters run in front of the gate, so the gate cannot stop a counter that reports: each
-        // nesting level counts before it is throttled. Skip the nested pass instead of recursing.
+        // A counter that reports re-enters here, and the gate runs too late to stop it.
         if ($this->countersRunning) {
             return null;
         }
@@ -120,8 +110,7 @@ class FloodControlServiceProvider extends ServiceProvider
                 try {
                     $this->app->make($counter)($e);
                 } catch (Throwable) {
-                    // dontReportCallbacks are not inside the handler's rescue(), so an escaping
-                    // throw would take down report() itself.
+                    // dontReportWhen() callbacks run outside the handler's rescue(): a throw breaks report().
                 }
             }
         } finally {
@@ -138,8 +127,8 @@ class FloodControlServiceProvider extends ServiceProvider
     }
 
     /**
-     * `throttleUsing()` is not on the ExceptionHandler contract, so a decorator — nunomaduro/collision
-     * wraps the binding on every console run — hides it. Walk to the handler that has it.
+     * throttleUsing() is not on the contract, so a decorator hides it (Collision wraps the binding on
+     * every console run). Walk to the handler that has it.
      */
     private static function unwrap(?object $handler): ?object
     {
@@ -176,10 +165,7 @@ class FloodControlServiceProvider extends ServiceProvider
         return null;
     }
 
-    /**
-     * A handler with no throttleUsing() gates nothing, so nothing is suppressed and counting belongs
-     * back where Pulse had it — behind the report this package no longer intercepts.
-     */
+    /** Nothing is gated, so count where Pulse would: in a reportable. */
     private function countPulseFromAReportable(object $handler): void
     {
         if ($this->wrapsPulse && method_exists($handler, 'reportable')) {
@@ -188,8 +174,8 @@ class FloodControlServiceProvider extends ServiceProvider
     }
 
     /**
-     * Config entries are scalars: a typo'd FQCN or key silently never matches and the default budget
-     * applies instead. Skipped when config is cached, so typos surface at `config:cache`.
+     * A typo'd class or key would otherwise fall back to the default budget silently. Skipped once
+     * cached: config:cache boots the app uncached, so it already ran there.
      */
     private function validateClassBudgets(): void
     {
@@ -230,7 +216,7 @@ class FloodControlServiceProvider extends ServiceProvider
         }
     }
 
-    /** A typo'd FQCN is a counter that silently never runs. Skipped when config is cached. */
+    /** A typo'd counter would otherwise silently never run. */
     private function validateCounters(): void
     {
         if ($this->app->configurationIsCached()) {
@@ -251,16 +237,8 @@ class FloodControlServiceProvider extends ServiceProvider
         }
     }
 
-    /** Standing in for another package's recorder must not be invisible. */
     private function registerAboutCommandIntegration(): void
     {
-        if (! class_exists(AboutCommand::class)) {
-            return;
-        }
-
-        // The same fallbacks ThrottleConfig applies: a config cache written before the package was
-        // installed leaves every key absent, and a panel reading 0 per 0s would call the package off
-        // while it is throttling.
         AboutCommand::add('Flood Control', fn (): array => [
             'Exception budget' => sprintf(
                 '%d per %ds',

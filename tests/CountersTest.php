@@ -10,7 +10,6 @@ use FloodControl\Tests\Fixtures\ReportingCounter;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/** config `counters`: the app's own way to see everything, without a bootstrap/app.php edit. */
 class CountersTest extends TestCase
 {
     /** @var list<class-string> */
@@ -53,8 +52,6 @@ class CountersTest extends TestCase
     #[Test]
     public function a_throwing_counter_does_not_disable_the_gate(): void
     {
-        // The handler rescues a throwing throttle callback into "do not throttle", so an unguarded
-        // throw would turn one broken counter into a kill switch for the whole package.
         $this->counters = [BrokenCounter::class, RecordingCounter::class];
         $this->refreshApplication();
         $this->captureReports();
@@ -70,7 +67,6 @@ class CountersTest extends TestCase
     #[Test]
     public function counters_still_run_with_the_package_disabled(): void
     {
-        // `enabled` governs throttling, not counting — same as the Pulse counter.
         config(['flood-control.enabled' => false]);
         $this->captureReports();
 
@@ -85,7 +81,6 @@ class CountersTest extends TestCase
     #[Test]
     public function a_counter_that_reports_does_not_recurse(): void
     {
-        // Counters run in front of the gate, so the gate can never stop a nested report.
         $this->counters = [ReportingCounter::class];
         $this->refreshApplication();
         config(['flood-control.limit' => 100]);

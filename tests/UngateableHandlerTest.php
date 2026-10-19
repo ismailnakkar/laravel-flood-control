@@ -10,10 +10,7 @@ use Laravel\Pulse\Events\ExceptionReported;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
-/**
- * An app can bind its own handler that has neither throttleUsing() nor an inner one to unwrap. The
- * package then gates nothing — and must not cost Pulse the count it would have had on its own.
- */
+/** A handler with no throttleUsing() to find: nothing is gated, and Pulse still counts once. */
 class UngateableHandlerTest extends TestCase
 {
     protected function defineEnvironment($app): void

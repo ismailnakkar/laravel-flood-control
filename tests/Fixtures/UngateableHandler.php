@@ -7,10 +7,7 @@ namespace FloodControl\Tests\Fixtures;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Throwable;
 
-/**
- * An app's own handler: the contract, plus the reportable() that Pulse and Sentry both call — and no
- * throttleUsing() and no inner handler to unwrap.
- */
+/** An app's own handler: reportable(), but no throttleUsing() and no inner handler to unwrap. */
 class UngateableHandler implements ExceptionHandler
 {
     /** @var list<callable> */

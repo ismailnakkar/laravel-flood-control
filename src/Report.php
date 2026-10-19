@@ -8,12 +8,12 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Support\Facades\Context;
 use Throwable;
 
-/** `report($e)` with extra context, a per-call limit, or both. With neither, use `report($e)`. */
+/** report() with scoped context, a per-call limit, or both. */
 final class Report
 {
     /**
-     * @param  array<string, mixed>  $context  Added for this report only; restored afterwards.
-     * @param  Limit|null  $limit  Ceiling for this report. `by()` picks the bucket.
+     * @param  array<string, mixed>  $context  Scoped to this report.
+     * @param  Limit|null  $limit  Caps this report only; by() picks the bucket.
      */
     public static function exception(Throwable $e, array $context = [], ?Limit $limit = null): void
     {
@@ -26,20 +26,18 @@ final class Report
                 ? report($e)
                 : Context::scope(fn () => report($e), $context);
         } finally {
-            // An early return in report() never reached the throttle: don't leave the override for a later report.
+            // report() may return before the throttle; don't leave the override for a later report.
             ExceptionThrottle::forget($e);
         }
     }
 
     /**
-     * A message that deserves an issue rather than a log line, reported behind the gate.
+     * Reports $message as an OperationalError, bucketed per call site so one noisy caller cannot
+     * spend another's budget.
      *
-     * For narration that only ever belongs in the file, use `LogThrottle::once()` instead. This
-     * still writes the log line too — `report()` does that itself once the gate lets it past.
-     *
-     * @param  array<string, mixed>  $context  Added for this report only; restored afterwards.
-     * @param  Throwable|null  $previous  The cause, chained so the sink keeps its stack trace.
-     * @param  Budget|null  $budget  This line's own pace. Null takes the configured one.
+     * @param  array<string, mixed>  $context  Scoped to this report.
+     * @param  Throwable|null  $previous  Chained, so the sink keeps its stack trace.
+     * @param  Budget|null  $budget  This call site's pace; null takes the configured one.
      */
     public static function error(
         string $message,
@@ -49,18 +47,12 @@ final class Report
     ): void {
         $e = new OperationalError($message, previous: $previous);
 
-        // Bucketed on the call site, not on OperationalError: one shared bucket would let the
-        // noisiest caller spend the budget for every other one. An explicit budget changes the
-        // pace, never the bucket — a line that wants its own window still gets its own counter.
         $limit = ($budget ?? app(ThrottleConfig::class)->for($e))->toLimit(self::callSite());
 
         self::exception($e, $context, $limit);
     }
 
-    /**
-     * The caller's file and line. Code-owned, so the key space is bounded by the source — unlike
-     * the message, which interpolates values.
-     */
+    /** The caller's file and line: bounded by the source, unlike the message. */
     private static function callSite(): string
     {
         $frame = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2)[1] ?? [];
