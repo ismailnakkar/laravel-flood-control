@@ -20,7 +20,7 @@ and server shares, such as Redis or the database, or each process or server thro
 
 | Key | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `enabled` | `FLOOD_CONTROL_ENABLED` | `true` | Exception throttling, per-call limits included. Counting and `LogThrottle` ignore it. |
+| `enabled` | `FLOOD_CONTROL_ENABLED` | `true` | Exception throttling, per-call limits and the [channel tap](#per-channel) included. Counting and `LogThrottle::once()`/`times()` ignore it. |
 | `limit` | `FLOOD_CONTROL_LIMIT` | `10` | Reports per exception class per window. |
 | `window` | `FLOOD_CONTROL_WINDOW` | `300` | Window in seconds. |
 | `classes` | | `[]` | Per-class budgets, below. |
@@ -123,6 +123,28 @@ times(string $key, Budget $budget, LoggerInterface|UnitEnum|array|string|null $c
 `Budget::of(3, 600)`, `Budget::perMinute(3)`, `Budget::perHour()`, `Budget::perDay(5)`,
 `Budget::unlimited()`.
 
+### Per channel
+
+Plain log lines a channel sends to a sink never pass the exception gate. Tap the channel to
+rate-limit what it passes on:
+
+```php
+// config/logging.php
+'sentry' => [/* … */, 'tap' => [\FloodControl\LogThrottle::class]],            // `limit` per `window`
+'slack'  => [/* … */, 'tap' => [\FloodControl\LogThrottle::class . ':3,600']],  // its own: 3 per 600s
+```
+
+- Each level and call site (file and line) gets its own bucket. Not the message: placeholders are
+  filled before any handler runs, so one site's messages all differ. Malformed tap arguments throw,
+  and Laravel then writes to its emergency log instead of that channel.
+- Lines below the channel's level cost nothing. Records with an `exception` pass uncounted: every
+  reported exception is logged that way, and the gate already limited it.
+- A dropped line still reaches the other channels of a stack, and still fires `MessageLogged`, so it
+  still leaves a Sentry breadcrumb. A line `LogThrottle::once()` lets through is counted again here.
+- Laravel's `info('…')` and `logger('…')` helpers are one call site each, whoever calls them; `Log::`
+  calls are not.
+- `enabled` switches it off, and a cache outage fails open.
+
 ## Counting
 
 A `reportable` that counts sees only survivors. Count in front of the gate instead:
@@ -157,18 +179,22 @@ hiding anything from counters.
 Sentry, Flare, Bugsnag and Rollbar register `reportable`s, so they already sit behind the gate. A
 sink's **log channel** in `LOG_STACK` also takes every plain log line at its level (`debug` up
 without a `level`), and wired with the reportable the sink gets each exception twice. Prefer the
-reportable; to keep the channel for plain log lines, give it a level and stop it handling exceptions:
+reportable; to keep the channel for plain log lines, give it a level, keep it off exceptions and
+[tap it](#per-channel):
 
 ```php
 'sentry' => [
     'driver'            => 'sentry',
     'level'             => env('SENTRY_CHANNEL_LEVEL', 'error'),
     'report_exceptions' => false,
+    'tap'               => [\FloodControl\LogThrottle::class],
 ],
 ```
 
 `report_exceptions => false` drops any record with an `exception` key, so `Log::error($msg,
-['exception' => $e])` stops reaching the sink: use `Report::exception()` or `Report::error()`.
+['exception' => $e])` stops reaching the sink: use `Report::exception()` or `Report::error()`. Their
+context is Laravel `Context`, which the sink sends with the event (Sentry: `contexts.laravel`), so
+your scrubber should cover it.
 
 ## Testing
 
@@ -185,11 +211,13 @@ LogThrottle::once('origin-denied', 60)->warning('Origin not allowed');
 Log::shouldHaveReceived('warning')->with('Origin not allowed')->once();
 ```
 
+`Log::spy()` never resolves a channel's taps: test the [channel tap](#per-channel) on a real channel.
+
 ## Upgrading
 
-### From 2.1
+### From 2.2
 
-Laravel 12.21 is the floor, for `dontReportWhen()`; 2.1 already failed below it. Nothing else changes.
+Nothing to do: the [channel tap](#per-channel) is opt-in.
 
 ## Licence
 

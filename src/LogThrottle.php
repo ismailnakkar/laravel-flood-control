@@ -9,6 +9,8 @@ use Illuminate\Cache\NullStore;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Log\Logger;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
+use Monolog\Handler\HandlerInterface;
 use Monolog\Logger as Monolog;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -83,6 +85,29 @@ final class LogThrottle
         } catch (Throwable) {
             return $logger;
         }
+    }
+
+    /**
+     * As a channel's tap, rate-limits the lines it passes on, per level and call site. Laravel passes
+     * `LogThrottle::class.':3,600'` as '3', '600': that channel's own budget. Without one, the
+     * top-level limit and window apply, read per line.
+     */
+    public function __invoke(Logger $logger, string $limit = '', string $window = '', string ...$rest): void
+    {
+        $budget = match (true) {
+            $rest === [] && $limit === '' && $window === ''             => null,
+            $rest === [] && ctype_digit($limit) && ctype_digit($window) => Budget::of((int)$limit, (int)$window),
+            // A typo must not fall back to the default silently, nor a third argument be dropped.
+            default => throw new InvalidArgumentException(sprintf(
+                "LogThrottle tap: expected ':limit,window' in whole numbers, got ':%s'.",
+                implode(',', [$limit, $window, ...$rest]),
+            )),
+        };
+
+        $logger->setHandlers(array_map(
+            static fn (HandlerInterface $handler): HandlerInterface => new ThrottledHandler($handler, $budget),
+            $logger->getHandlers(),
+        ));
     }
 
     /** @param  LoggerInterface|UnitEnum|array<int, string>|string|null  $channel */

@@ -5,8 +5,8 @@ declare(strict_types=1);
 return [
 
     /*
-     * Exception throttling on or off, per-call Report::exception() limits included. Counting and
-     * LogThrottle are unaffected.
+     * Exception throttling on or off, per-call Report::exception() limits and the LogThrottle channel
+     * tap included. Counting and LogThrottle::once()/times() are unaffected.
      */
     'enabled' => env('FLOOD_CONTROL_ENABLED', true),
 
